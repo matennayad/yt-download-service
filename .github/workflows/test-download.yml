@@ -1,0 +1,26 @@
+name: Test Download Endpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'קישור YouTube לבדיקה'
+        required: true
+        default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+      format:
+        description: 'audio או video'
+        required: true
+        default: 'audio'
+
+jobs:
+  test-download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /download endpoint
+        run: |
+          curl -X POST https://yt-download-service-vf4l.onrender.com/download \
+            -H "Content-Type: application/json" \
+            -H "X-API-KEY: 0772177775" \
+            -d "{\"url\": \"${{ github.event.inputs.youtube_url }}\", \"format\": \"${{ github.event.inputs.format }}\"}" \
+            -w "\n\nHTTP Status: %{http_code}\n" \
+            --max-time 300
