@@ -1,0 +1,11 @@
+name: Test Render Service
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check health endpoint
+        run: curl -v https://yt-download-service-vf4l.onrender.com/
