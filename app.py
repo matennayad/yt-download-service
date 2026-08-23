@@ -63,11 +63,9 @@ def download_from_youtube(url, fmt, tmp_dir):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir)
 
-    extractor_args = {"youtube": {"player_client": ["tv", "android", "web"]}}
-
     if fmt == "audio":
         ydl_opts = {
-            "format": "bestaudio*/best",
+            "format": "bestaudio/best",
             "outtmpl": outtmpl,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -76,16 +74,14 @@ def download_from_youtube(url, fmt, tmp_dir):
             }],
             "noplaylist": True,
             "quiet": True,
-            "extractor_args": extractor_args,
         }
     else:  # video
         ydl_opts = {
-            "format": "bestvideo*+bestaudio*/best",
+            "format": "bestvideo+bestaudio/best",
             "outtmpl": outtmpl,
             "merge_output_format": "mp4",
             "noplaylist": True,
             "quiet": True,
-            "extractor_args": extractor_args,
         }
 
     if cookies_path:
