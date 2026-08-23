@@ -16,6 +16,7 @@ app = Flask(__name__)
 API_KEY = os.environ.get("API_KEY", "")  # shared secret so random people can't use your service
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")  # the Drive folder to upload into
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")  # full JSON key, as a string
+YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")  # contents of a cookies.txt file, as a string
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
@@ -41,12 +42,26 @@ def upload_to_drive(local_path, filename):
     return uploaded.get("webViewLink"), uploaded.get("id")
 
 
+def write_cookies_file(tmp_dir):
+    """
+    If YOUTUBE_COOKIES env var is set, write it out to a temp file
+    and return its path. Otherwise return None.
+    """
+    if not YOUTUBE_COOKIES:
+        return None
+    cookies_path = os.path.join(tmp_dir, "cookies.txt")
+    with open(cookies_path, "w", encoding="utf-8") as f:
+        f.write(YOUTUBE_COOKIES)
+    return cookies_path
+
+
 def download_from_youtube(url, fmt, tmp_dir):
     """
     fmt: 'audio' or 'video'
     Returns (local_file_path, title)
     """
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
+    cookies_path = write_cookies_file(tmp_dir)
 
     if fmt == "audio":
         ydl_opts = {
@@ -69,6 +84,9 @@ def download_from_youtube(url, fmt, tmp_dir):
             "quiet": True,
         }
 
+    if cookies_path:
+        ydl_opts["cookiefile"] = cookies_path
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get("title", "download")
@@ -79,9 +97,9 @@ def download_from_youtube(url, fmt, tmp_dir):
             final_path = os.path.join(tmp_dir, f"{title}.mp4")
 
         # Fallback: if the exact name doesn't match (special characters etc.),
-        # just grab whatever single file is in the temp dir.
+        # just grab whatever single file is in the temp dir (excluding cookies.txt).
         if not os.path.exists(final_path):
-            files = os.listdir(tmp_dir)
+            files = [f for f in os.listdir(tmp_dir) if f != "cookies.txt"]
             if files:
                 final_path = os.path.join(tmp_dir, files[0])
 
