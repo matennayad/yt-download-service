@@ -1,0 +1,22 @@
+name: Test Formats Endpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'קישור YouTube לבדיקה'
+        required: true
+        default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+
+jobs:
+  test-formats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /formats endpoint
+        run: |
+          curl -X POST https://yt-download-service-vf4l.onrender.com/formats \
+            -H "Content-Type: application/json" \
+            -H "X-API-KEY: 0772177775" \
+            -d "{\"url\": \"${{ github.event.inputs.youtube_url }}\"}" \
+            -w "\n\nHTTP Status: %{http_code}\n" \
+            --max-time 120
