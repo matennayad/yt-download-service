@@ -50,12 +50,13 @@ def write_cookies_file(tmp_dir):
     return cookies_path
 
 
-def download_from_youtube(url, fmt, tmp_dir):
+def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=True):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
-    cookies_path = write_cookies_file(tmp_dir)
+    cookies_path = write_cookies_file(tmp_dir) if use_cookies else None
 
-    # שינוי: משלבים tv_simply עם web_embedded, כדי שיהיה גם מקור לפורמט אודיו
-    extractor_args = {"youtube": {"player_client": ["tv_simply", "web_embedded"]}}
+    if player_clients is None:
+        player_clients = ["tv_simply", "web_embedded"]
+    extractor_args = {"youtube": {"player_client": player_clients}}
 
     if fmt == "audio":
         ydl_opts = {
@@ -167,13 +168,15 @@ def download():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     fmt = data.get("format", "audio")
+    player_clients = data.get("player_client")
+    use_cookies = data.get("use_cookies", True)
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            local_path, title = download_from_youtube(url, fmt, tmp_dir)
+            local_path, title = download_from_youtube(url, fmt, tmp_dir, player_clients, use_cookies)
             drive_link, file_id = upload_to_drive(local_path, os.path.basename(local_path))
 
             return jsonify({
