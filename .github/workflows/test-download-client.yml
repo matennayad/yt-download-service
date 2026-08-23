@@ -1,0 +1,50 @@
+name: Test Download With Client
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'קישור YouTube לבדיקה'
+        required: true
+        default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+      player_client:
+        description: 'שמות client מופרדים בפסיק'
+        required: true
+        default: 'android'
+      use_cookies:
+        description: 'להשתמש בעוגיות? true/false'
+        required: true
+        default: 'false'
+      format:
+        description: 'audio או video'
+        required: true
+        default: 'audio'
+
+jobs:
+  test-download-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build payload file
+        run: |
+          python3 -c "
+          import json
+          clients = '${{ github.event.inputs.player_client }}'.split(',')
+          payload = {
+              'url': '${{ github.event.inputs.youtube_url }}',
+              'player_client': clients,
+              'use_cookies': '${{ github.event.inputs.use_cookies }}'.strip().lower() == 'true',
+              'format': '${{ github.event.inputs.format }}',
+          }
+          with open('payload.json', 'w') as f:
+              json.dump(payload, f)
+          "
+          cat payload.json
+
+      - name: Call /download endpoint
+        run: |
+          curl -X POST https://yt-download-service-vf4l.onrender.com/download \
+            -H "Content-Type: application/json" \
+            -H "X-API-KEY: 0772177775" \
+            --data-binary @payload.json \
+            -w "\n\nHTTP Status: %{http_code}\n" \
+            --max-time 300
