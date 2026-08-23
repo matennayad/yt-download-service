@@ -67,7 +67,7 @@ def download_from_youtube(url, fmt, tmp_dir):
 
     if fmt == "audio":
         ydl_opts = {
-            "format": "bestaudio/best",
+            "format": "best",
             "outtmpl": outtmpl,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -80,7 +80,7 @@ def download_from_youtube(url, fmt, tmp_dir):
         }
     else:  # video
         ydl_opts = {
-            "format": "bestvideo+bestaudio/best",
+            "format": "best",
             "outtmpl": outtmpl,
             "merge_output_format": "mp4",
             "noplaylist": True,
