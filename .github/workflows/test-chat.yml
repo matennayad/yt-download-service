@@ -1,0 +1,16 @@
+name: Test Chat Endpoint
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-chat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /chat endpoint
+        run: |
+          curl -X POST https://yt-download-service-vf4l.onrender.com/chat \
+            -H "Content-Type: application/json" \
+            -d '{"type": "ADDED_TO_SPACE"}' \
+            -w "\n\nHTTP Status: %{http_code}\nTime: %{time_total}s\n" \
+            --max-time 60
