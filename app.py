@@ -104,6 +104,50 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/formats", methods=["POST"])
+def list_formats():
+    """נתיב אבחון בלבד: לא מוריד כלום, רק מציג אילו פורמטים יוטיוב מציע בפועל."""
+    provided_key = request.headers.get("X-API-KEY", "")
+    if not API_KEY or provided_key != API_KEY:
+        return jsonify({"success": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
+    if not url:
+        return jsonify({"success": False, "error": "missing 'url'"}), 400
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cookies_path = write_cookies_file(tmp_dir)
+            extractor_args = {"youtube": {"player_client": ["tv_simply", "web_embedded"]}}
+            ydl_opts = {
+                "quiet": True,
+                "skip_download": True,
+                "extractor_args": extractor_args,
+            }
+            if cookies_path:
+                ydl_opts["cookiefile"] = cookies_path
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                formats = info.get("formats", [])
+                simplified = [
+                    {
+                        "format_id": f.get("format_id"),
+                        "ext": f.get("ext"),
+                        "acodec": f.get("acodec"),
+                        "vcodec": f.get("vcodec"),
+                        "abr": f.get("abr"),
+                        "has_url": bool(f.get("url")),
+                    }
+                    for f in formats
+                ]
+                return jsonify({"success": True, "count": len(simplified), "formats": simplified})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/download", methods=["POST"])
 def download():
     provided_key = request.headers.get("X-API-KEY", "")
