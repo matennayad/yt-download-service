@@ -54,8 +54,8 @@ def download_from_youtube(url, fmt, tmp_dir):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir)
 
-    # שינוי: מנסים tv_simply - נתיב פשוט שלא מפעיל את ברירת המחדל הבעייתית
-    extractor_args = {"youtube": {"player_client": ["tv_simply"]}}
+    # שינוי: משלבים tv_simply עם web_embedded, כדי שיהיה גם מקור לפורמט אודיו
+    extractor_args = {"youtube": {"player_client": ["tv_simply", "web_embedded"]}}
 
     if fmt == "audio":
         ydl_opts = {
