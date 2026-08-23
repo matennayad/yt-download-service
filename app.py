@@ -113,13 +113,15 @@ def list_formats():
 
     data = request.get_json(silent=True) or {}
     url = data.get("url")
+    player_clients = data.get("player_client", ["tv_simply", "web_embedded"])
+    use_cookies = data.get("use_cookies", True)
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            cookies_path = write_cookies_file(tmp_dir)
-            extractor_args = {"youtube": {"player_client": ["tv_simply", "web_embedded"]}}
+            cookies_path = write_cookies_file(tmp_dir) if use_cookies else None
+            extractor_args = {"youtube": {"player_client": player_clients}}
             ydl_opts = {
                 "quiet": True,
                 "skip_download": True,
@@ -138,11 +140,19 @@ def list_formats():
                         "acodec": f.get("acodec"),
                         "vcodec": f.get("vcodec"),
                         "abr": f.get("abr"),
+                        "note": f.get("format_note"),
                         "has_url": bool(f.get("url")),
                     }
                     for f in formats
                 ]
-                return jsonify({"success": True, "count": len(simplified), "formats": simplified})
+                real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
+                return jsonify({
+                    "success": True,
+                    "count": len(simplified),
+                    "real_count": len(real_formats),
+                    "real_formats": real_formats,
+                    "all_formats": simplified,
+                })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
