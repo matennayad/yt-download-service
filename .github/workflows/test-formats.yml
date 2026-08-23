@@ -28,7 +28,7 @@ jobs:
           payload = {
               'url': '${{ github.event.inputs.youtube_url }}',
               'player_client': clients,
-              'use_cookies': ${{ github.event.inputs.use_cookies }},
+              'use_cookies': '${{ github.event.inputs.use_cookies }}'.strip().lower() == 'true',
           }
           with open('payload.json', 'w') as f:
               json.dump(payload, f)
