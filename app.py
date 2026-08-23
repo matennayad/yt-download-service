@@ -54,9 +54,8 @@ def download_from_youtube(url, fmt, tmp_dir):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir)
 
-    # שינוי: עוברים ל-android_vr - נתיב שלא מפעיל את ברירת המחדל הבעייתית
-    # (tv_downgraded) שנוצרת אוטומטית כשיש עוגיות, ולא סובל מחסימת SABR
-    extractor_args = {"youtube": {"player_client": ["android_vr", "web_embedded"]}}
+    # שינוי: מנסים tv_simply - נתיב פשוט שלא מפעיל את ברירת המחדל הבעייתית
+    extractor_args = {"youtube": {"player_client": ["tv_simply"]}}
 
     if fmt == "audio":
         ydl_opts = {
