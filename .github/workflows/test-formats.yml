@@ -7,16 +7,31 @@ on:
         description: 'קישור YouTube לבדיקה'
         required: true
         default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+      player_client:
+        description: 'שמות client מופרדים בפסיק, למשל: ios,web'
+        required: true
+        default: 'tv_simply,web_embedded'
+      use_cookies:
+        description: 'להשתמש בעוגיות? true/false'
+        required: true
+        default: 'true'
 
 jobs:
   test-formats:
     runs-on: ubuntu-latest
     steps:
+      - name: Build player_client JSON array
+        id: build
+        run: |
+          CLIENTS="${{ github.event.inputs.player_client }}"
+          JSON_ARRAY=$(echo "$CLIENTS" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read().strip().split(',')))")
+          echo "clients_json=$JSON_ARRAY" >> "$GITHUB_OUTPUT"
+
       - name: Call /formats endpoint
         run: |
           curl -X POST https://yt-download-service-vf4l.onrender.com/formats \
             -H "Content-Type: application/json" \
             -H "X-API-KEY: 0772177775" \
-            -d "{\"url\": \"${{ github.event.inputs.youtube_url }}\"}" \
+            -d "{\"url\": \"${{ github.event.inputs.youtube_url }}\", \"player_client\": ${{ steps.build.outputs.clients_json }}, \"use_cookies\": ${{ github.event.inputs.use_cookies }}}" \
             -w "\n\nHTTP Status: %{http_code}\n" \
             --max-time 120
