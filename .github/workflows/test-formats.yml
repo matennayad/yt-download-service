@@ -20,18 +20,26 @@ jobs:
   test-formats:
     runs-on: ubuntu-latest
     steps:
-      - name: Build player_client JSON array
-        id: build
+      - name: Build payload file
         run: |
-          CLIENTS="${{ github.event.inputs.player_client }}"
-          JSON_ARRAY=$(echo "$CLIENTS" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read().strip().split(',')))")
-          echo "clients_json=$JSON_ARRAY" >> "$GITHUB_OUTPUT"
+          python3 -c "
+          import json
+          clients = '${{ github.event.inputs.player_client }}'.split(',')
+          payload = {
+              'url': '${{ github.event.inputs.youtube_url }}',
+              'player_client': clients,
+              'use_cookies': ${{ github.event.inputs.use_cookies }},
+          }
+          with open('payload.json', 'w') as f:
+              json.dump(payload, f)
+          "
+          cat payload.json
 
       - name: Call /formats endpoint
         run: |
           curl -X POST https://yt-download-service-vf4l.onrender.com/formats \
             -H "Content-Type: application/json" \
             -H "X-API-KEY: 0772177775" \
-            -d "{\"url\": \"${{ github.event.inputs.youtube_url }}\", \"player_client\": ${{ steps.build.outputs.clients_json }}, \"use_cookies\": ${{ github.event.inputs.use_cookies }}}" \
+            --data-binary @payload.json \
             -w "\n\nHTTP Status: %{http_code}\n" \
             --max-time 120
