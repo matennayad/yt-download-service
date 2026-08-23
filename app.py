@@ -12,11 +12,10 @@ from googleapiclient.http import MediaFileUpload
 
 app = Flask(__name__)
 
-# ---- Configuration (set these as environment variables on Render) ----
-API_KEY = os.environ.get("API_KEY", "")  # shared secret so random people can't use your service
-DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")  # the Drive folder to upload into
-GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")  # full JSON key, as a string
-YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")  # contents of a cookies.txt file, as a string
+API_KEY = os.environ.get("API_KEY", "")
+DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
@@ -43,10 +42,6 @@ def upload_to_drive(local_path, filename):
 
 
 def write_cookies_file(tmp_dir):
-    """
-    If YOUTUBE_COOKIES env var is set, write it out to a temp file
-    and return its path. Otherwise return None.
-    """
     if not YOUTUBE_COOKIES:
         return None
     cookies_path = os.path.join(tmp_dir, "cookies.txt")
@@ -56,14 +51,12 @@ def write_cookies_file(tmp_dir):
 
 
 def download_from_youtube(url, fmt, tmp_dir):
-    """
-    fmt: 'audio' or 'video'
-    Returns (local_file_path, title)
-    """
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir)
 
-    extractor_args = {"youtube": {"player_client": ["default", "-tv_downgraded"]}}
+    # שינוי: עוברים ל-android_vr - נתיב שלא מפעיל את ברירת המחדל הבעייתית
+    # (tv_downgraded) שנוצרת אוטומטית כשיש עוגיות, ולא סובל מחסימת SABR
+    extractor_args = {"youtube": {"player_client": ["android_vr", "web_embedded"]}}
 
     if fmt == "audio":
         ydl_opts = {
@@ -78,7 +71,7 @@ def download_from_youtube(url, fmt, tmp_dir):
             "quiet": True,
             "extractor_args": extractor_args,
         }
-    else:  # video
+    else:
         ydl_opts = {
             "format": "bestvideo+bestaudio/best",
             "outtmpl": outtmpl,
@@ -94,14 +87,11 @@ def download_from_youtube(url, fmt, tmp_dir):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get("title", "download")
-        # Figure out the actual output filename yt-dlp produced
         if fmt == "audio":
             final_path = os.path.join(tmp_dir, f"{title}.mp3")
         else:
             final_path = os.path.join(tmp_dir, f"{title}.mp4")
 
-        # Fallback: if the exact name doesn't match (special characters etc.),
-        # just grab whatever single file is in the temp dir (excluding cookies.txt).
         if not os.path.exists(final_path):
             files = [f for f in os.listdir(tmp_dir) if f != "cookies.txt"]
             if files:
@@ -117,14 +107,13 @@ def health():
 
 @app.route("/download", methods=["POST"])
 def download():
-    # --- simple auth check ---
     provided_key = request.headers.get("X-API-KEY", "")
     if not API_KEY or provided_key != API_KEY:
         return jsonify({"success": False, "error": "unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
     url = data.get("url")
-    fmt = data.get("format", "audio")  # 'audio' or 'video'
+    fmt = data.get("format", "audio")
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
