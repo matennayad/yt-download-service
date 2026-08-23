@@ -129,8 +129,8 @@ def list_formats():
                 ydl_opts["cookiefile"] = cookies_path
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                formats = info.get("formats", [])
+                info = ydl.extract_info(url, download=False, process=False)
+                formats = info.get("formats", []) or []
                 simplified = [
                     {
                         "format_id": f.get("format_id"),
