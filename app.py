@@ -69,12 +69,9 @@ def write_cookies_file(tmp_dir):
     return cookies_path
 
 
-def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=True):
+def _try_download_once(url, fmt, tmp_dir, player_clients, use_cookies):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir) if use_cookies else None
-
-    if player_clients is None:
-        player_clients = ["tv_simply", "web_embedded"]
     extractor_args = {"youtube": {"player_client": player_clients}}
 
     if fmt == "audio":
@@ -117,6 +114,47 @@ def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=Tr
                 final_path = os.path.join(tmp_dir, files[0])
 
         return final_path, title
+
+
+# רשימת נסיונות גיבוי: כל client מנוסה גם בלי וגם עם עוגיות; עוצרים ברגע שמשהו מצליח
+FALLBACK_CLIENT_COMBOS = [
+    (["android"], False),
+    (["android"], True),
+    (["ios"], False),
+    (["ios"], True),
+    (["android_music"], False),
+    (["android_music"], True),
+    (["tv_simply", "web_embedded"], False),
+    (["tv_simply", "web_embedded"], True),
+    (["web"], False),
+    (["web"], True),
+    (["mweb"], False),
+    (["mweb"], True),
+]
+
+
+def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=True):
+    """מנסה להוריד עם ה-client שהתבקש; אם זה נכשל, מנסה אוטומטית אפשרויות גיבוי נוספות."""
+    attempts = []
+    if player_clients is not None:
+        attempts.append((player_clients, use_cookies))
+    for combo in FALLBACK_CLIENT_COMBOS:
+        if combo not in attempts:
+            attempts.append(combo)
+
+    last_error = None
+    for clients, cookies_flag in attempts:
+        try:
+            sub_dir = os.path.join(tmp_dir, f"try_{'_'.join(clients)}_{int(cookies_flag)}")
+            os.makedirs(sub_dir, exist_ok=True)
+            return _try_download_once(url, fmt, sub_dir, clients, cookies_flag)
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise last_error
+
+
 
 
 @app.route("/", methods=["GET"])
