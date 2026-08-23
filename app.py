@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import tempfile
 import traceback
@@ -6,7 +7,8 @@ import traceback
 from flask import Flask, request, jsonify
 import yt_dlp
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleAuthRequest
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -14,15 +16,32 @@ app = Flask(__name__)
 
 API_KEY = os.environ.get("API_KEY", "")
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")
+
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
+YOUTUBE_URL_RE = re.compile(
+    r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w\-]+[^\s]*",
+    re.IGNORECASE,
+)
+
+DEFAULT_PLAYER_CLIENT = ["android"]
+
 
 def get_drive_service():
-    info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
-    creds = service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
+    creds = Credentials(
+        token=None,
+        refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=GOOGLE_OAUTH_CLIENT_ID,
+        client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
+        scopes=DRIVE_SCOPES,
+    )
+    creds.refresh(GoogleAuthRequest())
     return build("drive", "v3", credentials=creds)
 
 
@@ -157,6 +176,40 @@ def list_formats():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    """מקבל אירועים מ-Google Chat: הודעה עם קישור יוטיוב -> מוריד ומעלה ל-Drive -> עונה עם קישור."""
+    event = request.get_json(silent=True) or {}
+    event_type = event.get("type", "")
+
+    if event_type == "ADDED_TO_SPACE":
+        return jsonify({"text": "שלום! שלחו לי קישור YouTube ואני אוריד אותו ואעלה ל-Drive 🎵"})
+
+    if event_type != "MESSAGE":
+        return jsonify({})
+
+    message_text = (event.get("message", {}) or {}).get("text", "") or ""
+    match = YOUTUBE_URL_RE.search(message_text)
+    if not match:
+        return jsonify({"text": "לא מצאתי קישור YouTube בהודעה. שלחו לי קישור תקין."})
+
+    url = match.group(0)
+    fmt = "video" if "video" in message_text.lower() else "audio"
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            local_path, title = download_from_youtube(
+                url, fmt, tmp_dir,
+                player_clients=DEFAULT_PLAYER_CLIENT,
+                use_cookies=False,
+            )
+            drive_link, _ = upload_to_drive(local_path, os.path.basename(local_path))
+            return jsonify({"text": f"✅ הורד והועלה: {title}\n{drive_link}"})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"text": f"❌ שגיאה בהורדה: {e}"})
 
 
 @app.route("/download", methods=["POST"])
