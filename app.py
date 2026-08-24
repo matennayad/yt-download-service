@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import traceback
+import logging
 
 from flask import Flask, request, jsonify
 import yt_dlp
@@ -41,6 +42,17 @@ GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get(
 DRIVE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
 ]
+
+
+# ============================================================
+# YT-DLP VERSION
+# ============================================================
+
+YTDLP_VERSION = getattr(
+    yt_dlp.version,
+    "__version__",
+    "unknown"
+)
 
 
 # ============================================================
@@ -171,26 +183,12 @@ def build_ytdlp_options(
 
         "extractor_args": extractor_args,
 
-        # ====================================================
-        # IMPORTANT
-        #
-        # We deliberately avoid forcing a specific format ID.
-        # yt-dlp chooses a format that is actually available.
-        # ====================================================
-
         "format": (
-            # Audio:
-            # Prefer audio-only, but allow a normal format
-            # if audio-only is unavailable.
             "bestaudio[acodec!=none]/best[acodec!=none]/best"
             if fmt == "audio"
 
             else
 
-            # Video:
-            # Prefer combined video+audio.
-            # If unavailable, use separate video/audio.
-            # If that is also unavailable, use best.
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
             "bestvideo+bestaudio/"
             "best[ext=mp4]/"
@@ -203,11 +201,8 @@ def build_ytdlp_options(
 
         "nopart": False,
 
-        # Try to use the available URLs instead of requiring
-        # a previously selected format ID.
         "check_formats": "selected",
 
-        # Prevent playlist downloads.
         "noplaylist": True,
     }
 
@@ -324,10 +319,6 @@ def find_downloaded_file(
                         (full_path, size)
                     )
 
-    # ========================================================
-    # FALLBACK
-    # ========================================================
-
     if not candidates:
 
         for root, dirs, files in os.walk(
@@ -403,7 +394,8 @@ def _try_download_once(
         {
             "format": fmt,
             "clients": player_clients,
-            "cookies": use_cookies
+            "cookies": use_cookies,
+            "yt_dlp_version": YTDLP_VERSION
         }
     )
 
@@ -501,10 +493,6 @@ def download_from_youtube(
         if combo not in attempts:
             attempts.append(combo)
 
-    # ========================================================
-    # AUTO
-    # ========================================================
-
     if fmt == "auto":
 
         formats_to_try = [
@@ -587,7 +575,8 @@ def download_from_youtube(
 def health():
 
     return jsonify({
-        "status": "ok"
+        "status": "ok",
+        "yt_dlp_version": YTDLP_VERSION
     })
 
 
@@ -641,6 +630,43 @@ def list_formats():
             "error": "missing 'url'"
         }), 400
 
+    # ========================================================
+    # NORMALIZE PLAYER CLIENT
+    # ========================================================
+
+    if isinstance(
+        player_clients,
+        str
+    ):
+
+        player_clients = [
+            x.strip()
+            for x in player_clients.split(",")
+            if x.strip()
+        ]
+
+    if not player_clients:
+
+        player_clients = [
+            "android"
+        ]
+
+    # ========================================================
+    # SAFE DIAGNOSTIC INFORMATION
+    # ========================================================
+
+    diagnostic = {
+        "yt_dlp_version": YTDLP_VERSION,
+        "player_client": player_clients,
+        "use_cookies": bool(use_cookies),
+        "cookies_configured": bool(YOUTUBE_COOKIES),
+    }
+
+    print(
+        "FORMAT REQUEST:",
+        diagnostic
+    )
+
     try:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -658,10 +684,13 @@ def list_formats():
             }
 
             ydl_opts = {
-                "quiet": True,
-                "no_warnings": True,
+                "quiet": False,
+                "no_warnings": False,
                 "skip_download": True,
                 "extractor_args": extractor_args,
+                "logger": logging.getLogger(
+                    "yt_dlp_formats"
+                ),
             }
 
             if cookies_path:
@@ -669,6 +698,10 @@ def list_formats():
                 ydl_opts["cookiefile"] = (
                     cookies_path
                 )
+
+            # =================================================
+            # EXTRACT
+            # =================================================
 
             with yt_dlp.YoutubeDL(
                 ydl_opts
@@ -680,6 +713,12 @@ def list_formats():
                     process=False
                 )
 
+                if not info:
+
+                    raise RuntimeError(
+                        "yt-dlp לא החזיר מידע"
+                    )
+
                 formats = (
                     info.get(
                         "formats",
@@ -687,6 +726,19 @@ def list_formats():
                     )
                     or []
                 )
+
+                # =================================================
+                # VIDEO INFO
+                # =================================================
+
+                video_info = {
+                    "id": info.get("id"),
+                    "title": info.get("title"),
+                    "extractor": info.get("extractor"),
+                    "webpage_url": info.get("webpage_url"),
+                    "duration": info.get("duration"),
+                    "format_count": len(formats),
+                }
 
                 simplified = []
 
@@ -715,6 +767,9 @@ def list_formats():
                         "height":
                             f.get("height"),
 
+                        "width":
+                            f.get("width"),
+
                         "fps":
                             f.get("fps"),
 
@@ -725,7 +780,21 @@ def list_formats():
                             bool(
                                 f.get("url")
                             ),
+
+                        "protocol":
+                            f.get("protocol"),
+
+                        "filesize":
+                            f.get("filesize"),
+
+                        "filesize_approx":
+                            f.get("filesize_approx"),
+
                     })
+
+                # =================================================
+                # REAL FORMATS
+                # =================================================
 
                 real_formats = [
 
@@ -735,11 +804,54 @@ def list_formats():
                     if not str(
                         f["format_id"]
                     ).startswith("sb")
+
+                ]
+
+                # =================================================
+                # AUDIO / VIDEO COUNTS
+                # =================================================
+
+                video_formats = [
+
+                    f
+                    for f in real_formats
+
+                    if f.get("vcodec")
+                    and f.get("vcodec") != "none"
+
+                ]
+
+                audio_formats = [
+
+                    f
+                    for f in real_formats
+
+                    if f.get("acodec")
+                    and f.get("acodec") != "none"
+
+                ]
+
+                combined_formats = [
+
+                    f
+                    for f in real_formats
+
+                    if (
+                        f.get("vcodec")
+                        and f.get("vcodec") != "none"
+                        and f.get("acodec")
+                        and f.get("acodec") != "none"
+                    )
+
                 ]
 
                 return jsonify({
 
                     "success": True,
+
+                    "diagnostic": diagnostic,
+
+                    "video_info": video_info,
 
                     "count":
                         len(simplified),
@@ -747,11 +859,21 @@ def list_formats():
                     "real_count":
                         len(real_formats),
 
+                    "video_format_count":
+                        len(video_formats),
+
+                    "audio_format_count":
+                        len(audio_formats),
+
+                    "combined_format_count":
+                        len(combined_formats),
+
                     "real_formats":
                         real_formats,
 
                     "all_formats":
                         simplified,
+
                 })
 
     except Exception as e:
@@ -762,8 +884,13 @@ def list_formats():
 
             "success": False,
 
+            "diagnostic": diagnostic,
+
             "error":
-                str(e)
+                str(e),
+
+            "error_type":
+                type(e).__name__
 
         }), 500
 
@@ -976,10 +1103,6 @@ def download():
                     use_cookies=use_cookies
                 )
             )
-
-            # =================================================
-            # UPLOAD TO GOOGLE DRIVE
-            # =================================================
 
             drive_link, file_id = (
                 upload_to_drive(
