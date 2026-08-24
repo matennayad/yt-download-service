@@ -14,8 +14,9 @@ from googleapiclient.http import MediaFileUpload
 
 app = Flask(__name__)
 
+
 # ============================================================
-# Environment variables
+# ENVIRONMENT VARIABLES
 # ============================================================
 
 API_KEY = os.environ.get("API_KEY", "")
@@ -30,14 +31,22 @@ DRIVE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
 ]
 
+
+# ============================================================
+# YOUTUBE URL
+# ============================================================
+
 YOUTUBE_URL_RE = re.compile(
     r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w\-]+[^\s]*",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 
+DEFAULT_PLAYER_CLIENT = ["android"]
+
+
 # ============================================================
-# Google Drive
+# GOOGLE DRIVE
 # ============================================================
 
 def get_drive_service():
@@ -64,7 +73,7 @@ def upload_to_drive(local_path, filename):
 
     file_metadata = {
         "name": filename,
-        "parents": [DRIVE_FOLDER_ID] if DRIVE_FOLDER_ID else [],
+        "parents": [DRIVE_FOLDER_ID] if DRIVE_FOLDER_ID else []
     }
 
     media = MediaFileUpload(
@@ -85,7 +94,7 @@ def upload_to_drive(local_path, filename):
 
 
 # ============================================================
-# Cookies
+# COOKIES
 # ============================================================
 
 def write_cookies_file(tmp_dir):
@@ -108,25 +117,26 @@ def write_cookies_file(tmp_dir):
 
 
 # ============================================================
-# Download
+# YT-DLP OPTIONS
 # ============================================================
 
-def _download_once(
-    url,
-    fmt,
+def build_ytdlp_options(
     tmp_dir,
+    fmt,
     player_clients,
     use_cookies
 ):
     """
-    מבצע ניסיון הורדה אחד.
+    בונה את הגדרות yt-dlp.
 
-    החשוב:
-    אין כאן בחירה של format_id ולאחר מכן ניסיון להוריד
-    את אותו ID מחדש.
+    חשוב:
+    אנחנו לא בוחרים format_id ספציפי אחרי extraction.
 
-    yt-dlp מקבל selector כללי ובוחר מתוך הפורמטים
-    הזמינים בפועל באותו ניסיון.
+    במקום זאת yt-dlp מקבל format expression:
+      audio -> bestaudio/best
+      video -> bestvideo+bestaudio/best
+
+    כך בחירת הפורמט וההורדה מתבצעות באותה פעולה.
     """
 
     outtmpl = os.path.join(
@@ -134,167 +144,248 @@ def _download_once(
         "%(title)s.%(ext)s"
     )
 
-    cookies_path = None
-
-    if use_cookies:
-        cookies_path = write_cookies_file(tmp_dir)
-
     extractor_args = {
         "youtube": {
             "player_client": player_clients
         }
     }
 
-    common_opts = {
+    options = {
         "outtmpl": outtmpl,
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "extractor_args": extractor_args,
+
+        # אם bestvideo+bestaudio לא אפשרי,
+        # yt-dlp יעבור ל-best.
+        "format": (
+            "bestaudio/best"
+            if fmt == "audio"
+            else "bestvideo+bestaudio/best"
+        ),
+
+        # מנסה להמשיך גם במקרים שבהם חלק מהפורמטים לא זמינים.
+        "ignoreerrors": False,
+
+        # לא לשמור קבצים חלקיים מיותרים.
+        "continuedl": True,
+        "nopart": False,
     }
 
-    if cookies_path:
-        common_opts["cookiefile"] = cookies_path
+    if use_cookies:
+        cookies_path = write_cookies_file(tmp_dir)
 
-    # --------------------------------------------------------
-    # AUDIO
-    # --------------------------------------------------------
+        if cookies_path:
+            options["cookiefile"] = cookies_path
 
     if fmt == "audio":
-
-        ydl_opts = {
-            **common_opts,
-
-            # אודיו זמין ראשון, ואם לא קיים - פורמט אחר
-            "format": "ba/b",
-
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ],
-        }
-
-    # --------------------------------------------------------
-    # VIDEO
-    # --------------------------------------------------------
+        options["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ]
 
     else:
+        options["merge_output_format"] = "mp4"
 
-        ydl_opts = {
-            **common_opts,
+    return options
 
-            # קודם וידאו+אודיו נפרדים.
-            # אם זה לא אפשרי, progressive.
-            "format": "bv*+ba/b",
 
-            "merge_output_format": "mp4",
-        }
+# ============================================================
+# FIND FINAL FILE
+# ============================================================
 
-    # --------------------------------------------------------
-    # DOWNLOAD
-    # --------------------------------------------------------
+def find_downloaded_file(tmp_dir, fmt):
+    """
+    מחפש את הקובץ שנוצר בפועל.
+
+    לא מסתמך רק על title,
+    כי שם הקובץ יכול להשתנות בעקבות תווים מיוחדים,
+    סיומת או post-processing.
+    """
+
+    ignored = {
+        "cookies.txt"
+    }
+
+    candidates = []
+
+    for root, dirs, files in os.walk(tmp_dir):
+        for filename in files:
+
+            if filename in ignored:
+                continue
+
+            if filename.endswith(".part"):
+                continue
+
+            if filename.endswith(".ytdl"):
+                continue
+
+            full_path = os.path.join(
+                root,
+                filename
+            )
+
+            if not os.path.isfile(full_path):
+                continue
+
+            try:
+                size = os.path.getsize(full_path)
+            except OSError:
+                continue
+
+            if size <= 0:
+                continue
+
+            if fmt == "audio":
+                if filename.lower().endswith(
+                    (".mp3", ".m4a", ".opus", ".webm", ".aac", ".wav")
+                ):
+                    candidates.append(
+                        (full_path, size)
+                    )
+            else:
+                if filename.lower().endswith(
+                    (".mp4", ".mkv", ".webm", ".mov", ".avi")
+                ):
+                    candidates.append(
+                        (full_path, size)
+                    )
+
+    if not candidates:
+        # fallback:
+        # אם ffmpeg/yt-dlp יצרו סיומת אחרת,
+        # נחפש כל קובץ שאינו cookies/partial.
+        for root, dirs, files in os.walk(tmp_dir):
+            for filename in files:
+
+                if filename in ignored:
+                    continue
+
+                if filename.endswith(".part"):
+                    continue
+
+                if filename.endswith(".ytdl"):
+                    continue
+
+                full_path = os.path.join(
+                    root,
+                    filename
+                )
+
+                if os.path.isfile(full_path):
+                    try:
+                        size = os.path.getsize(full_path)
+                    except OSError:
+                        continue
+
+                    if size > 0:
+                        candidates.append(
+                            (full_path, size)
+                        )
+
+    if not candidates:
+        return None
+
+    # הקובץ הגדול ביותר הוא בדרך כלל הקובץ הסופי.
+    candidates.sort(
+        key=lambda item: item[1],
+        reverse=True
+    )
+
+    return candidates[0][0]
+
+
+# ============================================================
+# ONE DOWNLOAD ATTEMPT
+# ============================================================
+
+def _try_download_once(
+    url,
+    fmt,
+    tmp_dir,
+    player_clients,
+    use_cookies
+):
+    """
+    ניסיון הורדה יחיד.
+
+    התיקון המרכזי:
+    אין כאן extraction נפרד שבוחר format_id
+    ואז הורדה של אותו format_id.
+
+    yt-dlp מבצע extraction + בחירת format + download
+    באותה פעולה.
+    """
+
+    ydl_opts = build_ytdlp_options(
+        tmp_dir=tmp_dir,
+        fmt=fmt,
+        player_clients=player_clients,
+        use_cookies=use_cookies
+    )
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
         info = ydl.extract_info(
             url,
             download=True
         )
 
-        title = info.get(
-            "title",
-            "download"
+    if not info:
+        raise RuntimeError(
+            "yt-dlp לא החזיר מידע על הסרטון"
         )
 
-    # --------------------------------------------------------
-    # Find resulting file
-    # --------------------------------------------------------
-
-    expected_ext = (
-        "mp3"
-        if fmt == "audio"
-        else "mp4"
+    title = info.get(
+        "title",
+        "download"
     )
 
-    expected_path = os.path.join(
+    final_path = find_downloaded_file(
         tmp_dir,
-        f"{title}.{expected_ext}"
+        fmt
     )
 
-    if os.path.exists(expected_path):
-        return expected_path, title
-
-    # לפעמים yt-dlp/FFmpeg משנה את שם הקובץ.
-    files = []
-
-    for filename in os.listdir(tmp_dir):
-
-        if filename == "cookies.txt":
-            continue
-
-        full_path = os.path.join(
-            tmp_dir,
-            filename
-        )
-
-        if os.path.isfile(full_path):
-            files.append(full_path)
-
-    if not files:
+    if not final_path:
         raise RuntimeError(
             "ההורדה הסתיימה אך הקובץ הסופי לא נמצא"
         )
 
-    # הקובץ הגדול ביותר
-    files.sort(
-        key=lambda p: os.path.getsize(p),
-        reverse=True
-    )
-
-    return files[0], title
+    return final_path, title
 
 
 # ============================================================
-# Fallback combinations
+# FALLBACK CLIENTS
 # ============================================================
 
 FALLBACK_CLIENT_COMBOS = [
-
-    # Android
     (["android"], False),
     (["android"], True),
 
-    # iOS
     (["ios"], False),
     (["ios"], True),
 
-    # Android Music
     (["android_music"], False),
     (["android_music"], True),
 
-    # TV / embedded
-    (
-        ["tv_simply", "web_embedded"],
-        False
-    ),
+    (["tv_simply", "web_embedded"], False),
+    (["tv_simply", "web_embedded"], True),
 
-    (
-        ["tv_simply", "web_embedded"],
-        True
-    ),
-
-    # Web
     (["web"], False),
     (["web"], True),
 
-    # Mobile web
     (["mweb"], False),
     (["mweb"], True),
 ]
 
+
+# ============================================================
+# MAIN DOWNLOAD FUNCTION
+# ============================================================
 
 def download_from_youtube(
     url,
@@ -304,16 +395,19 @@ def download_from_youtube(
     use_cookies=True
 ):
     """
-    מנסה מספר clients ואפשרויות cookies.
+    מנסה מספר configurations.
 
-    בכל ניסיון yt-dlp עצמו בוחר את הפורמט הזמין.
-    אין שמירה של format_id בין ניסיון לניסיון.
+    אם ניסיון אחד נכשל:
+      עוברים ל-client הבא.
+
+    אם fmt == auto:
+      קודם מנסים video
+      ולאחר מכן audio.
     """
 
     attempts = []
 
     if player_clients is not None:
-
         attempts.append(
             (
                 player_clients,
@@ -322,12 +416,9 @@ def download_from_youtube(
         )
 
     for combo in FALLBACK_CLIENT_COMBOS:
-
         if combo not in attempts:
             attempts.append(combo)
 
-    # אם auto:
-    # קודם וידאו, ואם הכל נכשל - אודיו
     if fmt == "auto":
         formats_to_try = [
             "video",
@@ -342,23 +433,28 @@ def download_from_youtube(
 
         for clients, cookies_flag in attempts:
 
+            safe_clients = "_".join(
+                clients
+            )
+
+            sub_dir = os.path.join(
+                tmp_dir,
+                (
+                    f"try_"
+                    f"{target_fmt}_"
+                    f"{safe_clients}_"
+                    f"{int(cookies_flag)}"
+                )
+            )
+
+            os.makedirs(
+                sub_dir,
+                exist_ok=True
+            )
+
             try:
 
-                client_name = "_".join(
-                    clients
-                )
-
-                sub_dir = os.path.join(
-                    tmp_dir,
-                    f"try_{target_fmt}_{client_name}_{int(cookies_flag)}"
-                )
-
-                os.makedirs(
-                    sub_dir,
-                    exist_ok=True
-                )
-
-                return _download_once(
+                return _try_download_once(
                     url=url,
                     fmt=target_fmt,
                     tmp_dir=sub_dir,
@@ -371,13 +467,12 @@ def download_from_youtube(
                 last_error = e
 
                 print(
-                    f"Download attempt failed: "
-                    f"format={target_fmt}, "
-                    f"clients={clients}, "
-                    f"cookies={cookies_flag}"
+                    "Download attempt failed:",
+                    target_fmt,
+                    clients,
+                    cookies_flag,
+                    str(e)
                 )
-
-                traceback.print_exc()
 
                 continue
 
@@ -385,36 +480,49 @@ def download_from_youtube(
         raise last_error
 
     raise RuntimeError(
-        "ההורדה נכשלה ללא שגיאה מפורטת"
+        "כל ניסיונות ההורדה נכשלו"
     )
 
 
 # ============================================================
-# Health check
+# HEALTH CHECK
 # ============================================================
 
-@app.route("/", methods=["GET"])
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def health():
-
     return jsonify({
         "status": "ok"
     })
 
 
 # ============================================================
-# Formats diagnostic endpoint
+# FORMATS - DIAGNOSTIC ONLY
 # ============================================================
 
-@app.route("/formats", methods=["POST"])
+@app.route(
+    "/formats",
+    methods=["POST"]
+)
 def list_formats():
+    """
+    נתיב אבחון בלבד.
+
+    לא מוריד את הסרטון.
+    רק מציג את הפורמטים ש-yt-dlp רואה כרגע.
+    """
 
     provided_key = request.headers.get(
         "X-API-KEY",
         ""
     )
 
-    if not API_KEY or provided_key != API_KEY:
-
+    if (
+        not API_KEY
+        or provided_key != API_KEY
+    ):
         return jsonify({
             "success": False,
             "error": "unauthorized"
@@ -428,7 +536,7 @@ def list_formats():
 
     player_clients = data.get(
         "player_client",
-        ["tv_simply", "web_embedded"]
+        ["android"]
     )
 
     use_cookies = data.get(
@@ -437,7 +545,6 @@ def list_formats():
     )
 
     if not url:
-
         return jsonify({
             "success": False,
             "error": "missing 'url'"
@@ -447,12 +554,11 @@ def list_formats():
 
         with tempfile.TemporaryDirectory() as tmp_dir:
 
-            cookies_path = None
-
-            if use_cookies:
-                cookies_path = write_cookies_file(
-                    tmp_dir
-                )
+            cookies_path = (
+                write_cookies_file(tmp_dir)
+                if use_cookies
+                else None
+            )
 
             extractor_args = {
                 "youtube": {
@@ -462,6 +568,7 @@ def list_formats():
 
             ydl_opts = {
                 "quiet": True,
+                "no_warnings": True,
                 "skip_download": True,
                 "extractor_args": extractor_args,
             }
@@ -489,33 +596,15 @@ def list_formats():
                 for f in formats:
 
                     simplified.append({
-                        "format_id": f.get(
-                            "format_id"
-                        ),
-                        "ext": f.get(
-                            "ext"
-                        ),
-                        "acodec": f.get(
-                            "acodec"
-                        ),
-                        "vcodec": f.get(
-                            "vcodec"
-                        ),
-                        "height": f.get(
-                            "height"
-                        ),
-                        "fps": f.get(
-                            "fps"
-                        ),
-                        "abr": f.get(
-                            "abr"
-                        ),
-                        "tbr": f.get(
-                            "tbr"
-                        ),
-                        "note": f.get(
-                            "format_note"
-                        ),
+                        "format_id": f.get("format_id"),
+                        "ext": f.get("ext"),
+                        "acodec": f.get("acodec"),
+                        "vcodec": f.get("vcodec"),
+                        "abr": f.get("abr"),
+                        "tbr": f.get("tbr"),
+                        "height": f.get("height"),
+                        "fps": f.get("fps"),
+                        "note": f.get("format_note"),
                         "has_url": bool(
                             f.get("url")
                         ),
@@ -548,11 +637,22 @@ def list_formats():
 
 
 # ============================================================
-# Google Chat
+# GOOGLE CHAT
 # ============================================================
 
-@app.route("/chat", methods=["POST"])
+@app.route(
+    "/chat",
+    methods=["POST"]
+)
 def chat():
+    """
+    מקבל אירועים מ-Google Chat.
+
+    הודעה עם קישור YouTube:
+    -> מוריד
+    -> מעלה ל-Google Drive
+    -> מחזיר קישור.
+    """
 
     event = request.get_json(
         silent=True
@@ -563,7 +663,6 @@ def chat():
         ""
     )
 
-    # Bot added to space
     if event_type == "ADDED_TO_SPACE":
 
         return jsonify({
@@ -572,18 +671,18 @@ def chat():
                 "ואני אוריד אותו ואעלה ל-Drive 🎵"
         })
 
-    # Ignore other event types
     if event_type != "MESSAGE":
-
         return jsonify({})
 
+    message = event.get(
+        "message",
+        {}
+    ) or {}
+
     message_text = (
-        event.get("message", {})
-        or {}
-    ).get(
-        "text",
-        ""
-    ) or ""
+        message.get("text", "")
+        or ""
+    )
 
     match = YOUTUBE_URL_RE.search(
         message_text
@@ -599,8 +698,6 @@ def chat():
 
     url = match.group(0)
 
-    # אם כתוב video -> video
-    # אחרת audio
     fmt = (
         "video"
         if "video" in message_text.lower()
@@ -611,18 +708,14 @@ def chat():
 
         with tempfile.TemporaryDirectory() as tmp_dir:
 
-            local_path, title = download_from_youtube(
-                url=url,
-                fmt=fmt,
-                tmp_dir=tmp_dir,
-
-                # מתחילים עם Android
-                player_clients=[
-                    "android"
-                ],
-
-                # כאן אנחנו מאפשרים fallback
-                use_cookies=False
+            local_path, title = (
+                download_from_youtube(
+                    url=url,
+                    fmt=fmt,
+                    tmp_dir=tmp_dir,
+                    player_clients=DEFAULT_PLAYER_CLIENT,
+                    use_cookies=False
+                )
             )
 
             drive_link, _ = upload_to_drive(
@@ -633,8 +726,7 @@ def chat():
             return jsonify({
                 "text":
                     f"✅ הורד והועלה: "
-                    f"{title}\n"
-                    f"{drive_link}"
+                    f"{title}\n{drive_link}"
             })
 
     except Exception as e:
@@ -648,10 +740,13 @@ def chat():
 
 
 # ============================================================
-# Direct download API
+# DOWNLOAD API
 # ============================================================
 
-@app.route("/download", methods=["POST"])
+@app.route(
+    "/download",
+    methods=["POST"]
+)
 def download():
 
     provided_key = request.headers.get(
@@ -659,8 +754,10 @@ def download():
         ""
     )
 
-    if not API_KEY or provided_key != API_KEY:
-
+    if (
+        not API_KEY
+        or provided_key != API_KEY
+    ):
         return jsonify({
             "success": False,
             "error": "unauthorized"
@@ -670,9 +767,7 @@ def download():
         silent=True
     ) or {}
 
-    url = data.get(
-        "url"
-    )
+    url = data.get("url")
 
     fmt = data.get(
         "format",
@@ -695,16 +790,31 @@ def download():
             "error": "missing 'url'"
         }), 400
 
+    if fmt not in (
+        "audio",
+        "video",
+        "auto"
+    ):
+
+        return jsonify({
+            "success": False,
+            "error":
+                "format must be "
+                "'audio', 'video' or 'auto'"
+        }), 400
+
     try:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
 
-            local_path, title = download_from_youtube(
-                url=url,
-                fmt=fmt,
-                tmp_dir=tmp_dir,
-                player_clients=player_clients,
-                use_cookies=use_cookies
+            local_path, title = (
+                download_from_youtube(
+                    url=url,
+                    fmt=fmt,
+                    tmp_dir=tmp_dir,
+                    player_clients=player_clients,
+                    use_cookies=use_cookies
+                )
             )
 
             drive_link, file_id = upload_to_drive(
@@ -730,7 +840,7 @@ def download():
 
 
 # ============================================================
-# Start server
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
