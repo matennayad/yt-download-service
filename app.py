@@ -2,7 +2,6 @@ import os
 import re
 import tempfile
 import traceback
-import logging
 
 from flask import Flask, request, jsonify
 import yt_dlp
@@ -90,10 +89,7 @@ def get_drive_service():
     )
 
 
-def upload_to_drive(
-    local_path,
-    filename
-):
+def upload_to_drive(local_path, filename):
 
     service = get_drive_service()
 
@@ -156,10 +152,7 @@ def normalize_player_clients(player_clients):
     if player_clients is None:
         return None
 
-    if isinstance(
-        player_clients,
-        str
-    ):
+    if isinstance(player_clients, str):
 
         player_clients = [
             x.strip()
@@ -167,11 +160,7 @@ def normalize_player_clients(player_clients):
             if x.strip()
         ]
 
-    if not isinstance(
-        player_clients,
-        list
-    ):
-
+    if not isinstance(player_clients, list):
         return None
 
     return [
@@ -183,25 +172,6 @@ def normalize_player_clients(player_clients):
 
 # ============================================================
 # DEFAULT CLIENT STRATEGY
-#
-# Current yt-dlp YouTube behavior:
-#
-# web_embedded:
-#   does not currently require PO Token
-#   but only works for embeddable videos
-#
-# tv_simply:
-#   can avoid some PO Token requirements
-#
-# tv:
-#   can provide formats without PO Token in many cases
-#
-# android / ios:
-#   can require PO Token
-#
-# mweb:
-#   current yt-dlp recommendation is to use a PO Token
-#   provider for GVS
 # ============================================================
 
 DEFAULT_CLIENT_ATTEMPTS = [
@@ -252,14 +222,20 @@ def build_ytdlp_options(
         "%(title)s.%(ext)s"
     )
 
-extractor_args = {
-    "youtube": {
-        "player_client": player_clients
-    },
-    "youtubepot-bgutilhttp": {
-        "base_url": "http://127.0.0.1:4416"
+    # ========================================================
+    # YOUTUBE + PO TOKEN PROVIDER
+    # ========================================================
+
+    extractor_args = {
+        "youtube": {
+            "player_client": player_clients
+        },
+
+        "youtubepot-bgutilhttp": {
+            "base_url": "http://127.0.0.1:4416"
+        }
     }
-}
+
     options = {
 
         "outtmpl": outtmpl,
@@ -276,6 +252,10 @@ extractor_args = {
 
         "check_formats": "selected",
     }
+
+    # ========================================================
+    # LOGGING
+    # ========================================================
 
     if diagnostic:
 
@@ -330,9 +310,7 @@ extractor_args = {
 
         if cookies_path:
 
-            options["cookiefile"] = (
-                cookies_path
-            )
+            options["cookiefile"] = cookies_path
 
     return options
 
@@ -414,9 +392,7 @@ def find_downloaded_file(
 
     if not candidates:
 
-        for root, dirs, files in os.walk(
-            tmp_dir
-        ):
+        for root, dirs, files in os.walk(tmp_dir):
 
             for filename in files:
 
@@ -434,9 +410,7 @@ def find_downloaded_file(
                     filename
                 )
 
-                if not os.path.isfile(
-                    full_path
-                ):
+                if not os.path.isfile(full_path):
                     continue
 
                 try:
@@ -557,7 +531,6 @@ def download_from_youtube(
             )
         )
 
-    # Add default strategies
     for combo in DEFAULT_CLIENT_ATTEMPTS:
 
         if combo not in attempts:
@@ -578,8 +551,6 @@ def download_from_youtube(
         ]
 
     last_error = None
-
-    attempt_results = []
 
     for target_fmt in formats_to_try:
 
@@ -628,13 +599,6 @@ def download_from_youtube(
             except Exception as e:
 
                 last_error = e
-
-                attempt_results.append({
-                    "format": target_fmt,
-                    "clients": clients,
-                    "cookies": cookies_flag,
-                    "error": str(e)
-                })
 
                 print(
                     "Download attempt failed:",
@@ -709,9 +673,7 @@ def list_formats():
         silent=True
     ) or {}
 
-    url = data.get(
-        "url"
-    )
+    url = data.get("url")
 
     player_clients = data.get(
         "player_client"
@@ -753,6 +715,9 @@ def list_formats():
         "cookies_configured":
             bool(YOUTUBE_COOKIES),
 
+        "pot_provider":
+            "http://127.0.0.1:4416"
+
     }
 
     print(
@@ -772,7 +737,6 @@ def list_formats():
                 diagnostic=True
             )
 
-            # Do not download anything.
             ydl_opts["skip_download"] = True
 
             with yt_dlp.YoutubeDL(
@@ -1128,9 +1092,7 @@ def download():
         silent=True
     ) or {}
 
-    url = data.get(
-        "url"
-    )
+    url = data.get("url")
 
     fmt = data.get(
         "format",
