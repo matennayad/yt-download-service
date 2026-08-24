@@ -1,4 +1,3 @@
-```python
 import os
 import re
 import tempfile
@@ -1037,4 +1036,3 @@ if __name__ == "__main__":
             )
         )
     )
-```
