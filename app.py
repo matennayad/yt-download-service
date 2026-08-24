@@ -1,3 +1,4 @@
+```python
 import os
 import re
 import tempfile
@@ -23,9 +24,20 @@ API_KEY = os.environ.get("API_KEY", "")
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")
 
-GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
-GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
+    "GOOGLE_OAUTH_CLIENT_ID",
+    ""
+)
+
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get(
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    ""
+)
+
+GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get(
+    "GOOGLE_OAUTH_REFRESH_TOKEN",
+    ""
+)
 
 DRIVE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
@@ -37,12 +49,11 @@ DRIVE_SCOPES = [
 # ============================================================
 
 YOUTUBE_URL_RE = re.compile(
-    r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w\-]+[^\s]*",
+    r"(https?://)?(www\.)?"
+    r"(youtube\.com/watch\?v=|youtu\.be/)"
+    r"[\w\-]+[^\s]*",
     re.IGNORECASE
 )
-
-
-DEFAULT_PLAYER_CLIENT = ["android"]
 
 
 # ============================================================
@@ -50,6 +61,7 @@ DEFAULT_PLAYER_CLIENT = ["android"]
 # ============================================================
 
 def get_drive_service():
+
     creds = Credentials(
         token=None,
         refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
@@ -59,7 +71,9 @@ def get_drive_service():
         scopes=DRIVE_SCOPES,
     )
 
-    creds.refresh(GoogleAuthRequest())
+    creds.refresh(
+        GoogleAuthRequest()
+    )
 
     return build(
         "drive",
@@ -68,12 +82,20 @@ def get_drive_service():
     )
 
 
-def upload_to_drive(local_path, filename):
+def upload_to_drive(
+    local_path,
+    filename
+):
+
     service = get_drive_service()
 
     file_metadata = {
         "name": filename,
-        "parents": [DRIVE_FOLDER_ID] if DRIVE_FOLDER_ID else []
+        "parents": (
+            [DRIVE_FOLDER_ID]
+            if DRIVE_FOLDER_ID
+            else []
+        )
     }
 
     media = MediaFileUpload(
@@ -98,6 +120,7 @@ def upload_to_drive(local_path, filename):
 # ============================================================
 
 def write_cookies_file(tmp_dir):
+
     if not YOUTUBE_COOKIES:
         return None
 
@@ -126,18 +149,6 @@ def build_ytdlp_options(
     player_clients,
     use_cookies
 ):
-    """
-    בונה את הגדרות yt-dlp.
-
-    חשוב:
-    אנחנו לא בוחרים format_id ספציפי אחרי extraction.
-
-    במקום זאת yt-dlp מקבל format expression:
-      audio -> bestaudio/best
-      video -> bestvideo+bestaudio/best
-
-    כך בחירת הפורמט וההורדה מתבצעות באותה פעולה.
-    """
 
     outtmpl = os.path.join(
         tmp_dir,
@@ -152,34 +163,70 @@ def build_ytdlp_options(
 
     options = {
         "outtmpl": outtmpl,
+
         "noplaylist": True,
+
         "quiet": True,
+
         "no_warnings": True,
+
         "extractor_args": extractor_args,
 
-        # אם bestvideo+bestaudio לא אפשרי,
-        # yt-dlp יעבור ל-best.
+        # ====================================================
+        # IMPORTANT
+        #
+        # We deliberately avoid forcing a specific format ID.
+        # yt-dlp chooses a format that is actually available.
+        # ====================================================
+
         "format": (
-            "bestaudio/best"
+            # Audio:
+            # Prefer audio-only, but allow a normal format
+            # if audio-only is unavailable.
+            "bestaudio[acodec!=none]/best[acodec!=none]/best"
             if fmt == "audio"
-            else "bestvideo+bestaudio/best"
+
+            else
+
+            # Video:
+            # Prefer combined video+audio.
+            # If unavailable, use separate video/audio.
+            # If that is also unavailable, use best.
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+            "bestvideo+bestaudio/"
+            "best[ext=mp4]/"
+            "best"
         ),
 
-        # מנסה להמשיך גם במקרים שבהם חלק מהפורמטים לא זמינים.
         "ignoreerrors": False,
 
-        # לא לשמור קבצים חלקיים מיותרים.
         "continuedl": True,
+
         "nopart": False,
+
+        # Try to use the available URLs instead of requiring
+        # a previously selected format ID.
+        "check_formats": "selected",
+
+        # Prevent playlist downloads.
+        "noplaylist": True,
     }
 
     if use_cookies:
-        cookies_path = write_cookies_file(tmp_dir)
+
+        cookies_path = write_cookies_file(
+            tmp_dir
+        )
 
         if cookies_path:
             options["cookiefile"] = cookies_path
 
+    # ========================================================
+    # AUDIO
+    # ========================================================
+
     if fmt == "audio":
+
         options["postprocessors"] = [
             {
                 "key": "FFmpegExtractAudio",
@@ -188,7 +235,12 @@ def build_ytdlp_options(
             }
         ]
 
+    # ========================================================
+    # VIDEO
+    # ========================================================
+
     else:
+
         options["merge_output_format"] = "mp4"
 
     return options
@@ -198,14 +250,10 @@ def build_ytdlp_options(
 # FIND FINAL FILE
 # ============================================================
 
-def find_downloaded_file(tmp_dir, fmt):
-    """
-    מחפש את הקובץ שנוצר בפועל.
-
-    לא מסתמך רק על title,
-    כי שם הקובץ יכול להשתנות בעקבות תווים מיוחדים,
-    סיומת או post-processing.
-    """
+def find_downloaded_file(
+    tmp_dir,
+    fmt
+):
 
     ignored = {
         "cookies.txt"
@@ -214,6 +262,7 @@ def find_downloaded_file(tmp_dir, fmt):
     candidates = []
 
     for root, dirs, files in os.walk(tmp_dir):
+
         for filename in files:
 
             if filename in ignored:
@@ -234,33 +283,58 @@ def find_downloaded_file(tmp_dir, fmt):
                 continue
 
             try:
-                size = os.path.getsize(full_path)
+                size = os.path.getsize(
+                    full_path
+                )
             except OSError:
                 continue
 
             if size <= 0:
                 continue
 
+            lower_name = filename.lower()
+
             if fmt == "audio":
-                if filename.lower().endswith(
-                    (".mp3", ".m4a", ".opus", ".webm", ".aac", ".wav")
-                ):
-                    candidates.append(
-                        (full_path, size)
+
+                if lower_name.endswith(
+                    (
+                        ".mp3",
+                        ".m4a",
+                        ".opus",
+                        ".webm",
+                        ".aac",
+                        ".wav"
                     )
-            else:
-                if filename.lower().endswith(
-                    (".mp4", ".mkv", ".webm", ".mov", ".avi")
                 ):
                     candidates.append(
                         (full_path, size)
                     )
 
+            else:
+
+                if lower_name.endswith(
+                    (
+                        ".mp4",
+                        ".mkv",
+                        ".webm",
+                        ".mov",
+                        ".avi"
+                    )
+                ):
+                    candidates.append(
+                        (full_path, size)
+                    )
+
+    # ========================================================
+    # FALLBACK
+    # ========================================================
+
     if not candidates:
-        # fallback:
-        # אם ffmpeg/yt-dlp יצרו סיומת אחרת,
-        # נחפש כל קובץ שאינו cookies/partial.
-        for root, dirs, files in os.walk(tmp_dir):
+
+        for root, dirs, files in os.walk(
+            tmp_dir
+        ):
+
             for filename in files:
 
                 if filename in ignored:
@@ -277,21 +351,27 @@ def find_downloaded_file(tmp_dir, fmt):
                     filename
                 )
 
-                if os.path.isfile(full_path):
-                    try:
-                        size = os.path.getsize(full_path)
-                    except OSError:
-                        continue
+                if not os.path.isfile(
+                    full_path
+                ):
+                    continue
 
-                    if size > 0:
-                        candidates.append(
-                            (full_path, size)
-                        )
+                try:
+                    size = os.path.getsize(
+                        full_path
+                    )
+                except OSError:
+                    continue
+
+                if size > 0:
+
+                    candidates.append(
+                        (full_path, size)
+                    )
 
     if not candidates:
         return None
 
-    # הקובץ הגדול ביותר הוא בדרך כלל הקובץ הסופי.
     candidates.sort(
         key=lambda item: item[1],
         reverse=True
@@ -311,16 +391,6 @@ def _try_download_once(
     player_clients,
     use_cookies
 ):
-    """
-    ניסיון הורדה יחיד.
-
-    התיקון המרכזי:
-    אין כאן extraction נפרד שבוחר format_id
-    ואז הורדה של אותו format_id.
-
-    yt-dlp מבצע extraction + בחירת format + download
-    באותה פעולה.
-    """
 
     ydl_opts = build_ytdlp_options(
         tmp_dir=tmp_dir,
@@ -329,13 +399,26 @@ def _try_download_once(
         use_cookies=use_cookies
     )
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    print(
+        "Starting yt-dlp attempt:",
+        {
+            "format": fmt,
+            "clients": player_clients,
+            "cookies": use_cookies
+        }
+    )
+
+    with yt_dlp.YoutubeDL(
+        ydl_opts
+    ) as ydl:
+
         info = ydl.extract_info(
             url,
             download=True
         )
 
     if not info:
+
         raise RuntimeError(
             "yt-dlp לא החזיר מידע על הסרטון"
         )
@@ -351,11 +434,15 @@ def _try_download_once(
     )
 
     if not final_path:
+
         raise RuntimeError(
             "ההורדה הסתיימה אך הקובץ הסופי לא נמצא"
         )
 
-    return final_path, title
+    return (
+        final_path,
+        title
+    )
 
 
 # ============================================================
@@ -363,6 +450,7 @@ def _try_download_once(
 # ============================================================
 
 FALLBACK_CLIENT_COMBOS = [
+
     (["android"], False),
     (["android"], True),
 
@@ -372,8 +460,11 @@ FALLBACK_CLIENT_COMBOS = [
     (["android_music"], False),
     (["android_music"], True),
 
-    (["tv_simply", "web_embedded"], False),
-    (["tv_simply", "web_embedded"], True),
+    (["web_embedded"], False),
+    (["web_embedded"], True),
+
+    (["tv_simply"], False),
+    (["tv_simply"], True),
 
     (["web"], False),
     (["web"], True),
@@ -394,20 +485,11 @@ def download_from_youtube(
     player_clients=None,
     use_cookies=True
 ):
-    """
-    מנסה מספר configurations.
-
-    אם ניסיון אחד נכשל:
-      עוברים ל-client הבא.
-
-    אם fmt == auto:
-      קודם מנסים video
-      ולאחר מכן audio.
-    """
 
     attempts = []
 
     if player_clients is not None:
+
         attempts.append(
             (
                 player_clients,
@@ -416,16 +498,26 @@ def download_from_youtube(
         )
 
     for combo in FALLBACK_CLIENT_COMBOS:
+
         if combo not in attempts:
             attempts.append(combo)
 
+    # ========================================================
+    # AUTO
+    # ========================================================
+
     if fmt == "auto":
+
         formats_to_try = [
             "video",
             "audio"
         ]
+
     else:
-        formats_to_try = [fmt]
+
+        formats_to_try = [
+            fmt
+        ]
 
     last_error = None
 
@@ -477,6 +569,7 @@ def download_from_youtube(
                 continue
 
     if last_error:
+
         raise last_error
 
     raise RuntimeError(
@@ -493,13 +586,14 @@ def download_from_youtube(
     methods=["GET"]
 )
 def health():
+
     return jsonify({
         "status": "ok"
     })
 
 
 # ============================================================
-# FORMATS - DIAGNOSTIC ONLY
+# FORMATS - DIAGNOSTIC
 # ============================================================
 
 @app.route(
@@ -507,12 +601,6 @@ def health():
     methods=["POST"]
 )
 def list_formats():
-    """
-    נתיב אבחון בלבד.
-
-    לא מוריד את הסרטון.
-    רק מציג את הפורמטים ש-yt-dlp רואה כרגע.
-    """
 
     provided_key = request.headers.get(
         "X-API-KEY",
@@ -523,6 +611,7 @@ def list_formats():
         not API_KEY
         or provided_key != API_KEY
     ):
+
         return jsonify({
             "success": False,
             "error": "unauthorized"
@@ -532,7 +621,9 @@ def list_formats():
         silent=True
     ) or {}
 
-    url = data.get("url")
+    url = data.get(
+        "url"
+    )
 
     player_clients = data.get(
         "player_client",
@@ -545,6 +636,7 @@ def list_formats():
     )
 
     if not url:
+
         return jsonify({
             "success": False,
             "error": "missing 'url'"
@@ -574,7 +666,10 @@ def list_formats():
             }
 
             if cookies_path:
-                ydl_opts["cookiefile"] = cookies_path
+
+                ydl_opts["cookiefile"] = (
+                    cookies_path
+                )
 
             with yt_dlp.YoutubeDL(
                 ydl_opts
@@ -587,7 +682,10 @@ def list_formats():
                 )
 
                 formats = (
-                    info.get("formats", [])
+                    info.get(
+                        "formats",
+                        []
+                    )
                     or []
                 )
 
@@ -596,34 +694,65 @@ def list_formats():
                 for f in formats:
 
                     simplified.append({
-                        "format_id": f.get("format_id"),
-                        "ext": f.get("ext"),
-                        "acodec": f.get("acodec"),
-                        "vcodec": f.get("vcodec"),
-                        "abr": f.get("abr"),
-                        "tbr": f.get("tbr"),
-                        "height": f.get("height"),
-                        "fps": f.get("fps"),
-                        "note": f.get("format_note"),
-                        "has_url": bool(
-                            f.get("url")
-                        ),
+
+                        "format_id":
+                            f.get("format_id"),
+
+                        "ext":
+                            f.get("ext"),
+
+                        "acodec":
+                            f.get("acodec"),
+
+                        "vcodec":
+                            f.get("vcodec"),
+
+                        "abr":
+                            f.get("abr"),
+
+                        "tbr":
+                            f.get("tbr"),
+
+                        "height":
+                            f.get("height"),
+
+                        "fps":
+                            f.get("fps"),
+
+                        "note":
+                            f.get("format_note"),
+
+                        "has_url":
+                            bool(
+                                f.get("url")
+                            ),
                     })
 
                 real_formats = [
+
                     f
                     for f in simplified
+
                     if not str(
                         f["format_id"]
                     ).startswith("sb")
                 ]
 
                 return jsonify({
+
                     "success": True,
-                    "count": len(simplified),
-                    "real_count": len(real_formats),
-                    "real_formats": real_formats,
-                    "all_formats": simplified,
+
+                    "count":
+                        len(simplified),
+
+                    "real_count":
+                        len(real_formats),
+
+                    "real_formats":
+                        real_formats,
+
+                    "all_formats":
+                        simplified,
                 })
 
     except Exception as e:
@@ -631,8 +760,12 @@ def list_formats():
         traceback.print_exc()
 
         return jsonify({
+
             "success": False,
-            "error": str(e)
+
+            "error":
+                str(e)
+
         }), 500
 
 
@@ -645,14 +778,6 @@ def list_formats():
     methods=["POST"]
 )
 def chat():
-    """
-    מקבל אירועים מ-Google Chat.
-
-    הודעה עם קישור YouTube:
-    -> מוריד
-    -> מעלה ל-Google Drive
-    -> מחזיר קישור.
-    """
 
     event = request.get_json(
         silent=True
@@ -666,12 +791,14 @@ def chat():
     if event_type == "ADDED_TO_SPACE":
 
         return jsonify({
+
             "text":
                 "שלום! שלחו לי קישור YouTube "
                 "ואני אוריד אותו ואעלה ל-Drive 🎵"
         })
 
     if event_type != "MESSAGE":
+
         return jsonify({})
 
     message = event.get(
@@ -680,7 +807,10 @@ def chat():
     ) or {}
 
     message_text = (
-        message.get("text", "")
+        message.get(
+            "text",
+            ""
+        )
         or ""
     )
 
@@ -691,6 +821,7 @@ def chat():
     if not match:
 
         return jsonify({
+
             "text":
                 "לא מצאתי קישור YouTube "
                 "בהודעה. שלחו לי קישור תקין."
@@ -710,20 +841,30 @@ def chat():
 
             local_path, title = (
                 download_from_youtube(
+
                     url=url,
+
                     fmt=fmt,
+
                     tmp_dir=tmp_dir,
-                    player_clients=DEFAULT_PLAYER_CLIENT,
-                    use_cookies=False
+
+                    player_clients=None,
+
+                    use_cookies=True
                 )
             )
 
             drive_link, _ = upload_to_drive(
+
                 local_path,
-                os.path.basename(local_path)
+
+                os.path.basename(
+                    local_path
+                )
             )
 
             return jsonify({
+
                 "text":
                     f"✅ הורד והועלה: "
                     f"{title}\n{drive_link}"
@@ -734,6 +875,7 @@ def chat():
         traceback.print_exc()
 
         return jsonify({
+
             "text":
                 f"❌ שגיאה בהורדה: {e}"
         })
@@ -758,16 +900,23 @@ def download():
         not API_KEY
         or provided_key != API_KEY
     ):
+
         return jsonify({
+
             "success": False,
-            "error": "unauthorized"
+
+            "error":
+                "unauthorized"
+
         }), 401
 
     data = request.get_json(
         silent=True
     ) or {}
 
-    url = data.get("url")
+    url = data.get(
+        "url"
+    )
 
     fmt = data.get(
         "format",
@@ -786,8 +935,12 @@ def download():
     if not url:
 
         return jsonify({
+
             "success": False,
-            "error": "missing 'url'"
+
+            "error":
+                "missing 'url'"
+
         }), 400
 
     if fmt not in (
@@ -797,10 +950,13 @@ def download():
     ):
 
         return jsonify({
+
             "success": False,
+
             "error":
                 "format must be "
                 "'audio', 'video' or 'auto'"
+
         }), 400
 
     try:
@@ -809,24 +965,45 @@ def download():
 
             local_path, title = (
                 download_from_youtube(
+
                     url=url,
+
                     fmt=fmt,
+
                     tmp_dir=tmp_dir,
+
                     player_clients=player_clients,
+
                     use_cookies=use_cookies
                 )
             )
 
-            drive_link, file_id = upload_to_drive(
-                local_path,
-                os.path.basename(local_path)
+            # =================================================
+            # UPLOAD TO GOOGLE DRIVE
+            # =================================================
+
+            drive_link, file_id = (
+                upload_to_drive(
+
+                    local_path,
+
+                    os.path.basename(
+                        local_path
+                    )
+                )
             )
 
             return jsonify({
+
                 "success": True,
+
                 "title": title,
-                "driveLink": drive_link,
-                "fileId": file_id
+
+                "driveLink":
+                    drive_link,
+
+                "fileId":
+                    file_id
             })
 
     except Exception as e:
@@ -834,8 +1011,12 @@ def download():
         traceback.print_exc()
 
         return jsonify({
+
             "success": False,
-            "error": str(e)
+
+            "error":
+                str(e)
+
         }), 500
 
 
@@ -846,7 +1027,9 @@ def download():
 if __name__ == "__main__":
 
     app.run(
+
         host="0.0.0.0",
+
         port=int(
             os.environ.get(
                 "PORT",
@@ -854,3 +1037,4 @@ if __name__ == "__main__":
             )
         )
     )
+```
