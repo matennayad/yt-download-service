@@ -252,12 +252,14 @@ def build_ytdlp_options(
         "%(title)s.%(ext)s"
     )
 
-    extractor_args = {
-        "youtube": {
-            "player_client": player_clients
-        }
+extractor_args = {
+    "youtube": {
+        "player_client": player_clients
+    },
+    "youtubepot-bgutilhttp": {
+        "base_url": "http://127.0.0.1:4416"
     }
-
+}
     options = {
 
         "outtmpl": outtmpl,
