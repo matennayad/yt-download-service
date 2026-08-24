@@ -1,6 +1,9 @@
 FROM node:20-bookworm-slim
 
-# Python + ffmpeg + build tools
+# ============================================================
+# SYSTEM PACKAGES
+# ============================================================
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -9,46 +12,63 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
 
-# ------------------------------------------------------------
-# Install Python dependencies
-# ------------------------------------------------------------
+# ============================================================
+# APP
+# ============================================================
+
+WORKDIR /app
 
 COPY requirements.txt .
 
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN pip3 install \
+    --no-cache-dir \
+    --break-system-packages \
+    -r requirements.txt
 
-# ------------------------------------------------------------
-# Install bgutil PO Token HTTP provider
-# ------------------------------------------------------------
 
-RUN git clone --single-branch --branch 1.3.2 \
+# ============================================================
+# BGUTIL PO TOKEN PROVIDER
+# ============================================================
+
+RUN git clone \
+    --single-branch \
+    --branch 1.3.1 \
     https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
     /opt/bgutil-ytdlp-pot-provider
 
 WORKDIR /opt/bgutil-ytdlp-pot-provider/server
 
-RUN npm ci && npx tsc
+RUN npm ci
 
-# ------------------------------------------------------------
-# Copy application
-# ------------------------------------------------------------
+RUN npx tsc
+
+
+# ============================================================
+# COPY FLASK APP
+# ============================================================
 
 WORKDIR /app
 
 COPY app.py .
 
+
+# ============================================================
+# PORT
+# ============================================================
+
 ENV PORT=8080
 
 EXPOSE 8080
 
-# ------------------------------------------------------------
-# Start PO Token provider + Flask API
-# ------------------------------------------------------------
+
+# ============================================================
+# START
+# ============================================================
 
 CMD sh -c "node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & \
-    exec gunicorn --bind 0.0.0.0:\$PORT \
+    exec gunicorn \
+    --bind 0.0.0.0:\$PORT \
     --workers 1 \
     --threads 4 \
     --timeout 600 \
