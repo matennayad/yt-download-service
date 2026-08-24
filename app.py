@@ -134,7 +134,11 @@ FALLBACK_CLIENT_COMBOS = [
 
 
 def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=True):
-    """מנסה להוריד עם ה-client שהתבקש; אם זה נכשל, מנסה אוטומטית אפשרויות גיבוי נוספות."""
+    """
+    מנסה להוריד עם ה-client שהתבקש; אם זה נכשל, מנסה אוטומטית אפשרויות גיבוי נוספות.
+    אם fmt == "auto": מנסה קודם להשיג וידאו בכל השילובים, ורק אם אף אחד לא הצליח -
+    עובר לנסות אודיו בכל השילובים.
+    """
     attempts = []
     if player_clients is not None:
         attempts.append((player_clients, use_cookies))
@@ -142,19 +146,22 @@ def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=Tr
         if combo not in attempts:
             attempts.append(combo)
 
+    formats_to_try = ["video", "audio"] if fmt == "auto" else [fmt]
+
     last_error = None
-    for clients, cookies_flag in attempts:
-        try:
-            sub_dir = os.path.join(tmp_dir, f"try_{'_'.join(clients)}_{int(cookies_flag)}")
-            os.makedirs(sub_dir, exist_ok=True)
-            return _try_download_once(url, fmt, sub_dir, clients, cookies_flag)
-        except Exception as e:
-            last_error = e
-            continue
+    for target_fmt in formats_to_try:
+        for clients, cookies_flag in attempts:
+            try:
+                sub_dir = os.path.join(
+                    tmp_dir, f"try_{target_fmt}_{'_'.join(clients)}_{int(cookies_flag)}"
+                )
+                os.makedirs(sub_dir, exist_ok=True)
+                return _try_download_once(url, target_fmt, sub_dir, clients, cookies_flag)
+            except Exception as e:
+                last_error = e
+                continue
 
     raise last_error
-
-
 
 
 @app.route("/", methods=["GET"])
@@ -258,7 +265,7 @@ def download():
 
     data = request.get_json(silent=True) or {}
     url = data.get("url")
-    fmt = data.get("format", "audio")
+    fmt = data.get("format", "audio")  # אפשר גם "video" או "auto"
     player_clients = data.get("player_client")
     use_cookies = data.get("use_cookies", True)
 
