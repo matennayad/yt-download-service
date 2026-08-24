@@ -6,11 +6,13 @@ on:
       youtube_url:
         description: 'קישור YouTube לבדיקה'
         required: true
-        default: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        default: 'https://www.youtube.com/watch?v=eaqW5eQXTdM'
+
       player_client:
         description: 'שמות client מופרדים בפסיק, למשל: ios,web'
         required: true
-        default: 'tv_simply,web_embedded'
+        default: 'android'
+
       use_cookies:
         description: 'להשתמש בעוגיות? true/false'
         required: true
@@ -19,27 +21,35 @@ on:
 jobs:
   test-formats:
     runs-on: ubuntu-latest
+
     steps:
       - name: Build payload file
         run: |
           python3 -c "
           import json
+
           clients = '${{ github.event.inputs.player_client }}'.split(',')
+
           payload = {
               'url': '${{ github.event.inputs.youtube_url }}',
               'player_client': clients,
               'use_cookies': '${{ github.event.inputs.use_cookies }}'.strip().lower() == 'true',
           }
+
           with open('payload.json', 'w') as f:
               json.dump(payload, f)
           "
+
+          echo "===== PAYLOAD ====="
           cat payload.json
+          echo "==================="
 
       - name: Call /formats endpoint
         run: |
-          curl -X POST https://yt-download-service-vf4l.onrender.com/formats \
+          curl -X POST \
+            https://yt-download-service-vf4l.onrender.com/formats \
             -H "Content-Type: application/json" \
-            -H "X-API-KEY: 0772177775" \
+            -H "X-API-KEY: ${{ secrets.API_KEY }}" \
             --data-binary @payload.json \
             -w "\n\nHTTP Status: %{http_code}\n" \
             --max-time 120
