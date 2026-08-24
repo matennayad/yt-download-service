@@ -69,51 +69,151 @@ def write_cookies_file(tmp_dir):
     return cookies_path
 
 
+def _build_available_format(info, fmt):
+    """
+    בוחר פורמט מתוך הפורמטים שיוטיוב באמת החזיר.
+    לא מסתמך על format קשיח שעלול לא להיות זמין בסרטון מסוים.
+    """
+    formats = [
+        f for f in (info.get("formats") or [])
+        if not str(f.get("format_id", "")).startswith("sb")
+    ]
+
+    if not formats:
+        raise RuntimeError("YouTube לא החזיר פורמטים זמינים")
+
+    if fmt == "audio":
+        audio = [
+            f for f in formats
+            if f.get("acodec") not in (None, "none")
+        ]
+        if not audio:
+            raise RuntimeError("לא נמצא פורמט אודיו זמין")
+
+        # מעדיף bitrate גבוה, ובשוויון פורמט עם גודל ידוע.
+        audio.sort(
+            key=lambda f: (
+                f.get("abr") or 0,
+                f.get("tbr") or 0,
+                f.get("filesize") or f.get("filesize_approx") or 0,
+            ),
+            reverse=True,
+        )
+        return str(audio[0]["format_id"])
+
+    # קודם מחפשים progressive: וידאו + אודיו באותו פורמט.
+    progressive = [
+        f for f in formats
+        if f.get("vcodec") not in (None, "none")
+        and f.get("acodec") not in (None, "none")
+    ]
+
+    if progressive:
+        progressive.sort(
+            key=lambda f: (
+                f.get("height") or 0,
+                f.get("fps") or 0,
+                f.get("tbr") or 0,
+            ),
+            reverse=True,
+        )
+        return str(progressive[0]["format_id"])
+
+    video = [
+        f for f in formats
+        if f.get("vcodec") not in (None, "none")
+    ]
+    audio = [
+        f for f in formats
+        if f.get("acodec") not in (None, "none")
+    ]
+
+    if not video or not audio:
+        raise RuntimeError("לא נמצאו גם וידאו וגם אודיו זמינים")
+
+    video.sort(
+        key=lambda f: (
+            f.get("height") or 0,
+            f.get("fps") or 0,
+            f.get("tbr") or 0,
+        ),
+        reverse=True,
+    )
+    audio.sort(
+        key=lambda f: (
+            f.get("abr") or 0,
+            f.get("tbr") or 0,
+        ),
+        reverse=True,
+    )
+
+    return f'{video[0]["format_id"]}+{audio[0]["format_id"]}'
+
+
 def _try_download_once(url, fmt, tmp_dir, player_clients, use_cookies):
     outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
     cookies_path = write_cookies_file(tmp_dir) if use_cookies else None
     extractor_args = {"youtube": {"player_client": player_clients}}
 
-    if fmt == "audio":
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": outtmpl,
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "noplaylist": True,
-            "quiet": True,
-            "extractor_args": extractor_args,
-        }
-    else:
-        ydl_opts = {
-            "format": "bestvideo+bestaudio/best",
-            "outtmpl": outtmpl,
-            "merge_output_format": "mp4",
-            "noplaylist": True,
-            "quiet": True,
-            "extractor_args": extractor_args,
-        }
+    common_opts = {
+        "outtmpl": outtmpl,
+        "noplaylist": True,
+        "quiet": True,
+        "extractor_args": extractor_args,
+    }
 
     if cookies_path:
-        ydl_opts["cookiefile"] = cookies_path
+        common_opts["cookiefile"] = cookies_path
+
+    # שלב 1: מוציאים את רשימת הפורמטים בפועל ובוחרים אחד מהם אוטומטית.
+    with yt_dlp.YoutubeDL({
+        **common_opts,
+        "skip_download": True,
+    }) as ydl:
+        info = ydl.extract_info(url, download=False)
+        selected_format = _build_available_format(info, fmt)
+
+    # שלב 2: מורידים דווקא את הפורמט שנמצא בפועל.
+    ydl_opts = {
+        **common_opts,
+        "format": selected_format,
+    }
+
+    if fmt == "audio":
+        ydl_opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+    else:
+        ydl_opts["merge_output_format"] = "mp4"
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get("title", "download")
-        if fmt == "audio":
-            final_path = os.path.join(tmp_dir, f"{title}.mp3")
-        else:
-            final_path = os.path.join(tmp_dir, f"{title}.mp4")
 
-        if not os.path.exists(final_path):
-            files = [f for f in os.listdir(tmp_dir) if f != "cookies.txt"]
-            if files:
-                final_path = os.path.join(tmp_dir, files[0])
+    if fmt == "audio":
+        final_path = os.path.join(tmp_dir, f"{title}.mp3")
+    else:
+        final_path = os.path.join(tmp_dir, f"{title}.mp4")
 
-        return final_path, title
+    if not os.path.exists(final_path):
+        files = [
+            f for f in os.listdir(tmp_dir)
+            if f != "cookies.txt"
+        ]
+        if files:
+            # מעדיף את הקובץ הגדול ביותר במקרה שהשם/סיומת השתנו.
+            files.sort(
+                key=lambda f: os.path.getsize(os.path.join(tmp_dir, f)),
+                reverse=True,
+            )
+            final_path = os.path.join(tmp_dir, files[0])
+
+    if not os.path.exists(final_path):
+        raise RuntimeError("ההורדה הסתיימה אך הקובץ הסופי לא נמצא")
+
+    return final_path, title
 
 
 # רשימת נסיונות גיבוי: כל client מנוסה גם בלי וגם עם עוגיות; עוצרים ברגע שמשהו מצליח
@@ -135,7 +235,7 @@ FALLBACK_CLIENT_COMBOS = [
 
 def download_from_youtube(url, fmt, tmp_dir, player_clients=None, use_cookies=True):
     """
-    מנסה להוריד עם ה-client שהתבקש; אם זה נכשל, מנסה אוטומטית אפשרויות גיבוי נוספות.
+    בודק אוטומטית את הפורמטים הזמינים בכל ניסיון, בוחר פורמט קיים, ואם זה נכשל מנסה אפשרויות גיבוי נוספות.
     אם fmt == "auto": מנסה קודם להשיג וידאו בכל השילובים, ורק אם אף אחד לא הצליח -
     עובר לנסות אודיו בכל השילובים.
     """
