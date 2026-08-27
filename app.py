@@ -41,6 +41,13 @@ DRIVE_SCOPES = [
 
 
 # ============================================================
+# TOR PROXY (local SOCKS5, started in the same container)
+# ============================================================
+
+TOR_PROXY_URL = "socks5h://127.0.0.1:9050"
+
+
+# ============================================================
 # YT-DLP VERSION
 # ============================================================
 
@@ -214,7 +221,8 @@ def build_ytdlp_options(
     fmt,
     player_clients,
     use_cookies,
-    diagnostic=False
+    diagnostic=False,
+    use_proxy=False
 ):
 
     outtmpl = os.path.join(
@@ -252,6 +260,14 @@ def build_ytdlp_options(
 
         "check_formats": "selected",
     }
+
+    # ========================================================
+    # PROXY (Tor)
+    # ========================================================
+
+    if use_proxy:
+
+        options["proxy"] = TOR_PROXY_URL
 
     # ========================================================
     # LOGGING
@@ -446,7 +462,8 @@ def _try_download_once(
     fmt,
     tmp_dir,
     player_clients,
-    use_cookies
+    use_cookies,
+    use_proxy=False
 ):
 
     ydl_opts = build_ytdlp_options(
@@ -454,7 +471,8 @@ def _try_download_once(
         fmt=fmt,
         player_clients=player_clients,
         use_cookies=use_cookies,
-        diagnostic=False
+        diagnostic=False,
+        use_proxy=use_proxy
     )
 
     print(
@@ -513,7 +531,8 @@ def download_from_youtube(
     fmt,
     tmp_dir,
     player_clients=None,
-    use_cookies=True
+    use_cookies=True,
+    use_proxy=False
 ):
 
     attempts = []
@@ -582,7 +601,8 @@ def download_from_youtube(
                     fmt=target_fmt,
                     tmp_dir=sub_dir,
                     player_clients=clients,
-                    use_cookies=cookies_flag
+                    use_cookies=cookies_flag,
+                    use_proxy=use_proxy
                 )
 
                 print(
@@ -684,6 +704,11 @@ def list_formats():
         True
     )
 
+    use_proxy = data.get(
+        "use_proxy",
+        False
+    )
+
     if not url:
 
         return jsonify({
@@ -712,6 +737,9 @@ def list_formats():
         "use_cookies":
             bool(use_cookies),
 
+        "use_proxy":
+            bool(use_proxy),
+
         "cookies_configured":
             bool(YOUTUBE_COOKIES),
 
@@ -734,7 +762,8 @@ def list_formats():
                 fmt="video",
                 player_clients=player_clients,
                 use_cookies=use_cookies,
-                diagnostic=True
+                diagnostic=True,
+                use_proxy=use_proxy
             )
 
             ydl_opts["skip_download"] = True
@@ -1108,6 +1137,11 @@ def download():
         True
     )
 
+    use_proxy = data.get(
+        "use_proxy",
+        False
+    )
+
     if not url:
 
         return jsonify({
@@ -1150,7 +1184,9 @@ def download():
 
                     player_clients=player_clients,
 
-                    use_cookies=use_cookies
+                    use_cookies=use_cookies,
+
+                    use_proxy=use_proxy
 
                 )
             )
