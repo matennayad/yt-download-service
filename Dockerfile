@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
     ca-certificates \
+    tor \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -66,7 +67,9 @@ EXPOSE 8080
 # START
 # ============================================================
 
-CMD sh -c "node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & \
+CMD sh -c "tor --SocksPort 9050 --RunAsDaemon 0 & \
+    sleep 5 && \
+    node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & \
     exec gunicorn \
     --bind 0.0.0.0:\$PORT \
     --workers 1 \
