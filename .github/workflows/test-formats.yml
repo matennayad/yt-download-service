@@ -18,6 +18,11 @@ on:
         required: true
         default: 'true'
 
+      use_proxy:
+        description: 'להשתמש ב-Tor? true/false'
+        required: true
+        default: 'false'
+
 jobs:
   test-formats:
     runs-on: ubuntu-latest
@@ -34,6 +39,7 @@ jobs:
               'url': '${{ github.event.inputs.youtube_url }}',
               'player_client': clients,
               'use_cookies': '${{ github.event.inputs.use_cookies }}'.strip().lower() == 'true',
+              'use_proxy': '${{ github.event.inputs.use_proxy }}'.strip().lower() == 'true',
           }
 
           with open('payload.json', 'w') as f:
