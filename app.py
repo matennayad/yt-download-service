@@ -1051,9 +1051,11 @@ def chat():
 
                     tmp_dir=tmp_dir,
 
-                    player_clients=None,
+                    player_clients=["android"],
 
-                    use_cookies=True
+                    use_cookies=False,
+
+                    use_proxy=False
 
                 )
             )
