@@ -1,4 +1,3 @@
-import os
 import re
 import tempfile
 import traceback
@@ -21,8 +20,6 @@ app = Flask(__name__)
 
 API_KEY = os.environ.get("API_KEY", "")
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-
-# YouTube cookies stored in Railway Variables
 YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")
 
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
@@ -39,7 +36,6 @@ GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get(
     "GOOGLE_OAUTH_REFRESH_TOKEN",
     ""
 )
-
 
 DRIVE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
@@ -212,7 +208,6 @@ def normalize_player_clients(player_clients):
 
 DEFAULT_CLIENT_ATTEMPTS = [
 
-    # First try with cookies.
     (["android"], True),
     (["ios"], True),
     (["web_embedded"], True),
@@ -223,7 +218,6 @@ DEFAULT_CLIENT_ATTEMPTS = [
     (["mweb"], True),
     (["web"], True),
 
-    # Then allow non-cookie attempts as fallback.
     (["android"], False),
     (["ios"], False),
     (["web_embedded"], False),
@@ -258,57 +252,30 @@ def build_ytdlp_options(
         "youtube": {
             "player_client": player_clients
         },
-
         "youtubepot-bgutilhttp": {
             "base_url": "http://127.0.0.1:4416"
         }
     }
 
     options = {
-
         "outtmpl": outtmpl,
-
         "noplaylist": True,
-
         "extractor_args": extractor_args,
-
         "ignoreerrors": False,
-
         "continuedl": True,
-
         "nopart": False,
-
         "check_formats": "selected",
     }
 
-
-    # ========================================================
-    # PROXY
-    # ========================================================
-
     if use_proxy:
-
         options["proxy"] = TOR_PROXY_URL
 
-
-    # ========================================================
-    # LOGGING
-    # ========================================================
-
     if diagnostic:
-
         options["quiet"] = False
         options["no_warnings"] = False
-
     else:
-
         options["quiet"] = True
         options["no_warnings"] = True
-
-
-    # ========================================================
-    # FORMAT
-    # ========================================================
 
     if fmt == "audio":
 
@@ -336,11 +303,6 @@ def build_ytdlp_options(
         )
 
         options["merge_output_format"] = "mp4"
-
-
-    # ========================================================
-    # COOKIES
-    # ========================================================
 
     if use_cookies:
 
@@ -370,7 +332,6 @@ def build_ytdlp_options(
             "yt-dlp configuration: "
             "Cookies DISABLED"
         )
-
 
     return options
 
@@ -450,8 +411,6 @@ def find_downloaded_file(
                     (full_path, size)
                 )
 
-
-    # Fallback: any non-empty file
     if not candidates:
 
         for root, dirs, files in os.walk(tmp_dir):
@@ -487,7 +446,6 @@ def find_downloaded_file(
                     candidates.append(
                         (full_path, size)
                     )
-
 
     if not candidates:
         return None
@@ -589,11 +547,6 @@ def download_from_youtube(
         player_clients
     )
 
-    # ========================================================
-    # If caller specified a client, try it first.
-    # Cookies are tried first.
-    # ========================================================
-
     if requested_clients:
 
         requested_attempt = (
@@ -605,8 +558,6 @@ def download_from_youtube(
             requested_attempt
         )
 
-        # If cookies were requested, also try the same
-        # client without cookies as a fallback.
         if use_cookies:
 
             no_cookie_attempt = (
@@ -620,17 +571,11 @@ def download_from_youtube(
                     no_cookie_attempt
                 )
 
-
-    # ========================================================
-    # Add default attempts.
-    # ========================================================
-
     for combo in DEFAULT_CLIENT_ATTEMPTS:
 
         if combo not in attempts:
 
             attempts.append(combo)
-
 
     if fmt == "auto":
 
@@ -645,13 +590,7 @@ def download_from_youtube(
             fmt
         ]
 
-
     last_error = None
-
-
-    # ========================================================
-    # RUN ATTEMPTS
-    # ========================================================
 
     for target_fmt in formats_to_try:
 
@@ -729,14 +668,12 @@ def download_from_youtube(
 
                 continue
 
-
     if last_error:
 
         raise RuntimeError(
             "כל ניסיונות ההורדה נכשלו. "
             f"yt-dlp האחרון החזיר: {last_error}"
         )
-
 
     raise RuntimeError(
         "כל ניסיונות ההורדה נכשלו"
@@ -794,11 +731,9 @@ def list_formats():
             "error": "unauthorized"
         }), 401
 
-
     data = request.get_json(
         silent=True
     ) or {}
-
 
     url = data.get("url")
 
@@ -816,7 +751,6 @@ def list_formats():
         False
     )
 
-
     if not url:
 
         return jsonify({
@@ -824,18 +758,15 @@ def list_formats():
             "error": "missing 'url'"
         }), 400
 
-
     player_clients = normalize_player_clients(
         player_clients
     )
-
 
     if not player_clients:
 
         player_clients = [
             "web_embedded"
         ]
-
 
     diagnostic = {
 
@@ -859,12 +790,10 @@ def list_formats():
 
     }
 
-
     print(
         "FORMAT REQUEST:",
         diagnostic
     )
-
 
     try:
 
@@ -881,7 +810,6 @@ def list_formats():
 
             ydl_opts["skip_download"] = True
 
-
             with yt_dlp.YoutubeDL(
                 ydl_opts
             ) as ydl:
@@ -892,13 +820,11 @@ def list_formats():
                     process=False
                 )
 
-
             if not info:
 
                 raise RuntimeError(
                     "yt-dlp לא החזיר מידע"
                 )
-
 
             formats = (
                 info.get(
@@ -908,9 +834,7 @@ def list_formats():
                 or []
             )
 
-
             simplified = []
-
 
             for f in formats:
 
@@ -962,7 +886,6 @@ def list_formats():
 
                 })
 
-
             real_formats = [
 
                 f
@@ -973,7 +896,6 @@ def list_formats():
                 ).startswith("sb")
 
             ]
-
 
             video_formats = [
 
@@ -988,7 +910,6 @@ def list_formats():
 
             ]
 
-
             audio_formats = [
 
                 f
@@ -1001,7 +922,6 @@ def list_formats():
                 )
 
             ]
-
 
             combined_formats = [
 
@@ -1019,7 +939,6 @@ def list_formats():
                 )
 
             ]
-
 
             return jsonify({
 
@@ -1073,11 +992,9 @@ def list_formats():
 
             })
 
-
     except Exception as e:
 
         traceback.print_exc()
-
 
         return jsonify({
 
@@ -1110,7 +1027,6 @@ def download():
         ""
     )
 
-
     if (
         not API_KEY
         or provided_key != API_KEY
@@ -1125,42 +1041,30 @@ def download():
 
         }), 401
 
-
     data = request.get_json(
         silent=True
     ) or {}
 
-
     url = data.get("url")
-
 
     fmt = data.get(
         "format",
         "audio"
     )
 
-
     player_clients = data.get(
         "player_client"
     )
-
-
-    # ========================================================
-    # IMPORTANT:
-    # Cookies are ON by default.
-    # ========================================================
 
     use_cookies = data.get(
         "use_cookies",
         True
     )
 
-
     use_proxy = data.get(
         "use_proxy",
         False
     )
-
 
     if not url:
 
@@ -1172,7 +1076,6 @@ def download():
                 "missing 'url'"
 
         }), 400
-
 
     if fmt not in (
         "audio",
@@ -1190,7 +1093,6 @@ def download():
 
         }), 400
 
-
     print(
         "DOWNLOAD REQUEST:",
         {
@@ -1202,7 +1104,6 @@ def download():
             "yt_dlp_version": YTDLP_VERSION
         }
     )
-
 
     try:
 
@@ -1226,7 +1127,6 @@ def download():
                 )
             )
 
-
             drive_link, file_id = (
                 upload_to_drive(
 
@@ -1238,7 +1138,6 @@ def download():
 
                 )
             )
-
 
             return jsonify({
 
@@ -1255,11 +1154,9 @@ def download():
 
             })
 
-
     except Exception as e:
 
         traceback.print_exc()
-
 
         return jsonify({
 
