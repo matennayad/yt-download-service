@@ -19,6 +19,18 @@ on:
         description: 'audio או video'
         required: true
         default: 'audio'
+      use_proxy:
+        description: 'להשתמש ב-Tor? true/false'
+        required: true
+        default: 'false'
+      target:
+        description: 'איזה שרת לבדוק?'
+        required: true
+        default: 'railway'
+        type: choice
+        options:
+          - render
+          - railway
 
 jobs:
   test-download-client:
@@ -34,6 +46,7 @@ jobs:
               'player_client': clients,
               'use_cookies': '${{ github.event.inputs.use_cookies }}'.strip().lower() == 'true',
               'format': '${{ github.event.inputs.format }}',
+              'use_proxy': '${{ github.event.inputs.use_proxy }}'.strip().lower() == 'true',
           }
           with open('payload.json', 'w') as f:
               json.dump(payload, f)
@@ -42,7 +55,15 @@ jobs:
 
       - name: Call /download endpoint
         run: |
-          curl -X POST https://yt-download-service-vf4l.onrender.com/download \
+          if [ "${{ github.event.inputs.target }}" = "railway" ]; then
+            BASE_URL="https://yt-download-service-production.up.railway.app"
+          else
+            BASE_URL="https://yt-download-service-vf4l.onrender.com"
+          fi
+
+          echo "Testing: $BASE_URL"
+
+          curl -X POST "$BASE_URL/download" \
             -H "Content-Type: application/json" \
             -H "X-API-KEY: 0772177775" \
             --data-binary @payload.json \
