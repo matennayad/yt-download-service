@@ -23,6 +23,15 @@ on:
         required: true
         default: 'false'
 
+      target:
+        description: 'איזה שרת לבדוק?'
+        required: true
+        default: 'render'
+        type: choice
+        options:
+          - render
+          - railway
+
 jobs:
   test-formats:
     runs-on: ubuntu-latest
@@ -52,8 +61,16 @@ jobs:
 
       - name: Call /formats endpoint
         run: |
+          if [ "${{ github.event.inputs.target }}" = "railway" ]; then
+            BASE_URL="https://yt-download-service-production.up.railway.app"
+          else
+            BASE_URL="https://yt-download-service-vf4l.onrender.com"
+          fi
+
+          echo "Testing: $BASE_URL"
+
           curl -X POST \
-            https://yt-download-service-vf4l.onrender.com/formats \
+            "$BASE_URL/formats" \
             -H "Content-Type: application/json" \
             -H "X-API-KEY: ${{ secrets.API_KEY }}" \
             --data-binary @payload.json \
