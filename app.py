@@ -44,10 +44,14 @@ DRIVE_SCOPES = [
 
 
 # ============================================================
-# TOR PROXY
+# PROXIES
 # ============================================================
 
 TOR_PROXY_URL = "socks5h://127.0.0.1:9050"
+
+# פרוקסי SOCKS5 מקומי שנפתח על ידי Cloudflare WARP כשהוא רץ במצב "proxy"
+# (מוגדר ב-start.sh: warp-cli mode proxy). זה חינמי לגמרי.
+WARP_PROXY_URL = "socks5h://127.0.0.1:40000"
 
 
 # ============================================================
@@ -241,7 +245,8 @@ def build_ytdlp_options(
     player_clients,
     use_cookies,
     diagnostic=False,
-    use_proxy=False
+    use_proxy=False,
+    use_warp=False
 ):
 
     outtmpl = os.path.join(
@@ -268,7 +273,10 @@ def build_ytdlp_options(
         "check_formats": "selected",
     }
 
-    if use_proxy:
+    # WARP מקבל עדיפות אם שניהם התבקשו יחד (לא אמור לקרות בפועל)
+    if use_warp:
+        options["proxy"] = WARP_PROXY_URL
+    elif use_proxy:
         options["proxy"] = TOR_PROXY_URL
 
     if diagnostic:
@@ -469,7 +477,8 @@ def _try_download_once(
     tmp_dir,
     player_clients,
     use_cookies,
-    use_proxy=False
+    use_proxy=False,
+    use_warp=False
 ):
 
     ydl_opts = build_ytdlp_options(
@@ -478,7 +487,8 @@ def _try_download_once(
         player_clients=player_clients,
         use_cookies=use_cookies,
         diagnostic=False,
-        use_proxy=use_proxy
+        use_proxy=use_proxy,
+        use_warp=use_warp
     )
 
     print(
@@ -488,6 +498,8 @@ def _try_download_once(
             "clients": player_clients,
             "cookies": use_cookies,
             "cookies_configured": bool(YOUTUBE_COOKIES),
+            "proxy": use_proxy,
+            "warp": use_warp,
             "yt_dlp_version": YTDLP_VERSION
         }
     )
@@ -539,7 +551,8 @@ def download_from_youtube(
     tmp_dir,
     player_clients=None,
     use_cookies=True,
-    use_proxy=False
+    use_proxy=False,
+    use_warp=False
 ):
 
     attempts = []
@@ -627,7 +640,8 @@ def download_from_youtube(
                     "clients": clients,
                     "cookies": cookies_flag,
                     "cookies_configured": bool(YOUTUBE_COOKIES),
-                    "proxy": use_proxy
+                    "proxy": use_proxy,
+                    "warp": use_warp
                 }
             )
 
@@ -639,7 +653,8 @@ def download_from_youtube(
                     tmp_dir=sub_dir,
                     player_clients=clients,
                     use_cookies=cookies_flag,
-                    use_proxy=use_proxy
+                    use_proxy=use_proxy,
+                    use_warp=use_warp
                 )
 
                 print(
@@ -752,6 +767,11 @@ def list_formats():
         False
     )
 
+    use_warp = data.get(
+        "use_warp",
+        False
+    )
+
     if not url:
 
         return jsonify({
@@ -783,6 +803,9 @@ def list_formats():
         "use_proxy":
             bool(use_proxy),
 
+        "use_warp":
+            bool(use_warp),
+
         "cookies_configured":
             bool(YOUTUBE_COOKIES),
 
@@ -806,7 +829,8 @@ def list_formats():
                 player_clients=player_clients,
                 use_cookies=use_cookies,
                 diagnostic=True,
-                use_proxy=use_proxy
+                use_proxy=use_proxy,
+                use_warp=use_warp
             )
 
             ydl_opts["skip_download"] = True
@@ -1067,6 +1091,11 @@ def download():
         False
     )
 
+    use_warp = data.get(
+        "use_warp",
+        False
+    )
+
     if not url:
 
         return jsonify({
@@ -1102,6 +1131,7 @@ def download():
             "use_cookies": bool(use_cookies),
             "cookies_configured": bool(YOUTUBE_COOKIES),
             "use_proxy": bool(use_proxy),
+            "use_warp": bool(use_warp),
             "yt_dlp_version": YTDLP_VERSION
         }
     )
@@ -1123,7 +1153,9 @@ def download():
 
                     use_cookies=use_cookies,
 
-                    use_proxy=use_proxy
+                    use_proxy=use_proxy,
+
+                    use_warp=use_warp
 
                 )
             )
