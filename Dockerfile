@@ -10,19 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     curl \
-    gnupg \
-    tor \
-    privoxy \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN echo "forward-socks5t / 127.0.0.1:9050 ." >> /etc/privoxy/config
-
-# ============================================================
-# CLOUDFLARE WARP
-# ============================================================
-RUN curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ bookworm main" > /etc/apt/sources.list.d/cloudflare-client.list \
-    && apt-get update && apt-get install -y --no-install-recommends cloudflare-warp \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
@@ -52,8 +39,6 @@ RUN npx tsc
 # ============================================================
 WORKDIR /app
 COPY app.py .
-COPY start.sh .
-RUN chmod +x start.sh
 
 # ============================================================
 # PORT
@@ -64,4 +49,7 @@ EXPOSE 8080
 # ============================================================
 # START
 # ============================================================
-CMD ["./start.sh"]
+# מפעיל ברקע את שרת ה-PO token provider (Node, פורט 4416 - זה מה ש-app.py
+# מצפה לו דרך pot_provider: http://127.0.0.1:4416), ואז מריץ בחזית את
+# שרת ה-Flask עצמו (exec כדי שהוא יהיה התהליך הראשי של הקונטיינר).
+CMD ["sh", "-c", "PORT=4416 node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & exec python3 app.py"]
