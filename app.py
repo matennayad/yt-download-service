@@ -62,15 +62,68 @@ YTDLP_VERSION = getattr(
 
 
 # ============================================================
-# YOUTUBE URL
+# PLATFORM DETECTION
+# ============================================================
+# מזהה מאיזו פלטפורמה מגיע הקישור, כדי להתאים את אסטרטגיית ההורדה.
+# כרגע נתמכים: youtube, instagram, tiktok. כל השאר -> "other"
+# (yt-dlp עדיין ינסה לחלץ מידע גם מ"other", פשוט בלי אופטימיזציות ייעודיות)
+
+def detect_platform(url):
+
+    if not url:
+        return "other"
+
+    u = url.lower()
+
+    if "youtube.com" in u or "youtu.be" in u:
+        return "youtube"
+
+    if "instagram.com" in u:
+        return "instagram"
+
+    if "tiktok.com" in u:
+        return "tiktok"
+
+    return "other"
+
+
+# ============================================================
+# VIDEO URL VALIDATION (multi-platform)
 # ============================================================
 
-YOUTUBE_URL_RE = re.compile(
-    r"(https?://)?(www\.)?"
-    r"(youtube\.com/watch\?v=|youtu\.be/)"
-    r"[\w\-]+[^\s]*",
-    re.IGNORECASE
-)
+VIDEO_URL_PATTERNS = [
+    re.compile(
+        r"(https?://)?(www\.)?"
+        r"(youtube\.com/watch\?v=|youtu\.be/)"
+        r"[\w\-]+[^\s]*",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"(https?://)?(www\.)?"
+        r"instagram\.com/(p|reel|reels|tv)/"
+        r"[\w\-]+[^\s]*",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"(https?://)?(www\.|vm\.|vt\.)?"
+        r"tiktok\.com/"
+        r"(@[\w.\-]+/video/\d+|[\w]+)[^\s]*",
+        re.IGNORECASE
+    ),
+]
+
+
+def is_valid_video_url(url):
+
+    if not url:
+        return False
+
+    text = url.strip()
+
+    return any(
+        pattern.match(text)
+        for pattern in VIDEO_URL_PATTERNS
+    )
 
 
 # ============================================================
@@ -204,8 +257,11 @@ def normalize_player_clients(player_clients):
 
 
 # ============================================================
-# DEFAULT CLIENT STRATEGY
+# DEFAULT CLIENT STRATEGY (YouTube בלבד)
 # ============================================================
+# הרשימה הזו רלוונטית רק ליוטיוב - "player_client" הוא מונח ספציפי
+# למנגנון ה-extractor של יוטיוב ב-yt-dlp. לפלטפורמות אחרות (אינסטגרם,
+# טיקטוק) אין משמעות לרשימה הזו ולכן לא נעשה בה שימוש עבורן.
 
 DEFAULT_CLIENT_ATTEMPTS = [
 
@@ -240,6 +296,7 @@ def build_ytdlp_options(
     fmt,
     player_clients,
     use_cookies,
+    platform="youtube",
     diagnostic=False,
     use_proxy=False
 ):
@@ -250,13 +307,16 @@ def build_ytdlp_options(
     )
 
     extractor_args = {
-        "youtube": {
-            "player_client": player_clients
-        },
         "youtubepot-bgutilhttp": {
             "base_url": "http://127.0.0.1:4416"
         }
     }
+
+    # player_client רלוונטי רק לחילוץ מיוטיוב
+    if platform == "youtube" and player_clients:
+        extractor_args["youtube"] = {
+            "player_client": player_clients
+        }
 
     options = {
         "outtmpl": outtmpl,
@@ -305,7 +365,9 @@ def build_ytdlp_options(
 
         options["merge_output_format"] = "mp4"
 
-    if use_cookies:
+    # עוגיות - כרגע נתמך רק עבור יוטיוב (YOUTUBE_COOKIES).
+    # אינסטגרם/טיקטוק פועלים כרגע במצב תוכן ציבורי בלבד, ללא עוגיות.
+    if use_cookies and platform == "youtube":
 
         cookies_path = write_cookies_file(
             tmp_dir
@@ -469,6 +531,7 @@ def _try_download_once(
     tmp_dir,
     player_clients,
     use_cookies,
+    platform="youtube",
     use_proxy=False
 ):
 
@@ -477,6 +540,7 @@ def _try_download_once(
         fmt=fmt,
         player_clients=player_clients,
         use_cookies=use_cookies,
+        platform=platform,
         diagnostic=False,
         use_proxy=use_proxy
     )
@@ -484,6 +548,7 @@ def _try_download_once(
     print(
         "Starting yt-dlp attempt:",
         {
+            "platform": platform,
             "format": fmt,
             "clients": player_clients,
             "cookies": use_cookies,
@@ -530,10 +595,10 @@ def _try_download_once(
 
 
 # ============================================================
-# DOWNLOAD ENGINE
+# DOWNLOAD ENGINE (multi-platform)
 # ============================================================
 
-def download_from_youtube(
+def download_video(
     url,
     fmt,
     tmp_dir,
@@ -542,41 +607,56 @@ def download_from_youtube(
     use_proxy=False
 ):
 
+    platform = detect_platform(url)
+
     attempts = []
 
-    requested_clients = normalize_player_clients(
-        player_clients
-    )
+    if platform == "youtube":
 
-    if requested_clients:
-
-        requested_attempt = (
-            requested_clients,
-            bool(use_cookies)
+        # ליוטיוב - שימור האסטרטגיה הקיימת: ניסיון עם ה-client
+        # שהתבקש (אם הוגדר), ואז שורת גיבוי ארוכה של קליינטים שונים.
+        requested_clients = normalize_player_clients(
+            player_clients
         )
 
-        attempts.append(
-            requested_attempt
-        )
+        if requested_clients:
 
-        if use_cookies:
-
-            no_cookie_attempt = (
+            requested_attempt = (
                 requested_clients,
-                False
+                bool(use_cookies)
             )
 
-            if no_cookie_attempt not in attempts:
+            attempts.append(
+                requested_attempt
+            )
 
-                attempts.append(
-                    no_cookie_attempt
+            if use_cookies:
+
+                no_cookie_attempt = (
+                    requested_clients,
+                    False
                 )
 
-    for combo in DEFAULT_CLIENT_ATTEMPTS:
+                if no_cookie_attempt not in attempts:
 
-        if combo not in attempts:
+                    attempts.append(
+                        no_cookie_attempt
+                    )
 
-            attempts.append(combo)
+        for combo in DEFAULT_CLIENT_ATTEMPTS:
+
+            if combo not in attempts:
+
+                attempts.append(combo)
+
+    else:
+
+        # אינסטגרם / טיקטוק / אחר - אין מושג "player_client",
+        # אז מספיק ניסיון ישיר אחד (ועם/בלי עוגיות אם התבקש).
+        attempts.append((None, bool(use_cookies)))
+
+        if use_cookies:
+            attempts.append((None, False))
 
     if fmt == "auto":
 
@@ -597,8 +677,10 @@ def download_from_youtube(
 
         for clients, cookies_flag in attempts:
 
-            safe_clients = "_".join(
-                clients
+            safe_clients = (
+                "_".join(clients)
+                if clients
+                else "default"
             )
 
             sub_dir = os.path.join(
@@ -623,6 +705,7 @@ def download_from_youtube(
             print(
                 "DOWNLOAD ATTEMPT",
                 {
+                    "platform": platform,
                     "format": target_fmt,
                     "clients": clients,
                     "cookies": cookies_flag,
@@ -639,12 +722,14 @@ def download_from_youtube(
                     tmp_dir=sub_dir,
                     player_clients=clients,
                     use_cookies=cookies_flag,
+                    platform=platform,
                     use_proxy=use_proxy
                 )
 
                 print(
                     "SUCCESSFUL yt-dlp attempt:",
                     {
+                        "platform": platform,
                         "format": target_fmt,
                         "clients": clients,
                         "cookies": cookies_flag
@@ -660,6 +745,7 @@ def download_from_youtube(
                 print(
                     "Download attempt failed:",
                     {
+                        "platform": platform,
                         "format": target_fmt,
                         "clients": clients,
                         "cookies": cookies_flag,
@@ -702,7 +788,13 @@ def health():
             bool(YOUTUBE_COOKIES),
 
         "pot_provider":
-            "http://127.0.0.1:4416"
+            "http://127.0.0.1:4416",
+
+        "supported_platforms": [
+            "youtube",
+            "instagram",
+            "tiktok"
+        ]
 
     })
 
@@ -759,11 +851,14 @@ def list_formats():
             "error": "missing 'url'"
         }), 400
 
+    platform = detect_platform(url)
+
     player_clients = normalize_player_clients(
         player_clients
     )
 
-    if not player_clients:
+    # ברירת המחדל של player_client רלוונטית רק ליוטיוב
+    if platform == "youtube" and not player_clients:
 
         player_clients = [
             "web_embedded"
@@ -773,6 +868,9 @@ def list_formats():
 
         "yt_dlp_version":
             YTDLP_VERSION,
+
+        "platform":
+            platform,
 
         "player_client":
             player_clients,
@@ -805,6 +903,7 @@ def list_formats():
                 fmt="video",
                 player_clients=player_clients,
                 use_cookies=use_cookies,
+                platform=platform,
                 diagnostic=True,
                 use_proxy=use_proxy
             )
@@ -1078,6 +1177,18 @@ def download():
 
         }), 400
 
+    if not is_valid_video_url(url):
+
+        return jsonify({
+
+            "success": False,
+
+            "error":
+                "קישור לא נתמך - יש לשלוח קישור תקין "
+                "מיוטיוב, אינסטגרם או טיקטוק"
+
+        }), 400
+
     if fmt not in (
         "audio",
         "video",
@@ -1094,9 +1205,12 @@ def download():
 
         }), 400
 
+    platform = detect_platform(url)
+
     print(
         "DOWNLOAD REQUEST:",
         {
+            "platform": platform,
             "format": fmt,
             "player_client": player_clients,
             "use_cookies": bool(use_cookies),
@@ -1111,7 +1225,7 @@ def download():
         with tempfile.TemporaryDirectory() as tmp_dir:
 
             local_path, title = (
-                download_from_youtube(
+                download_video(
 
                     url=url,
 
@@ -1143,6 +1257,9 @@ def download():
             return jsonify({
 
                 "success": True,
+
+                "platform":
+                    platform,
 
                 "title":
                     title,
