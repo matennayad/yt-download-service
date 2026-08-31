@@ -66,30 +66,46 @@ YTDLP_VERSION = getattr(
 
 
 # ============================================================
-# ROBUST VOD & ARTICLE SCRAPER (Anti-Live & Season/Episode Support)
+# ANTI-BOT BYPASS VOD SCRAPER
 # ============================================================
 
 def extract_hidden_m3u8(url, season=None, episode=None):
-    print(f"Starting Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
+    print(f"Starting Anti-Bot Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
     found_stream = None
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-infobars',
+                    '--start-maximized'
+                ]
             )
-            page = browser.new_page(viewport={'width': 1280, 'height': 800})
+            
+            # יצירת הקשר דפדפן שמזطה דפדפן אמיתי לגמרי כדי לעקוף את ההגנה של מאקו
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="he-IL",
+                timezone_id="Asia/Jerusalem"
+            )
+            
+            page = context.new_page()
 
             def inspect_response(response):
                 nonlocal found_stream
                 try:
                     res_url = response.url.lower()
                     
-                    if any(bad in res_url for bad in ["adsystem", "doubleclick", "track", "banner"]):
+                    # התעלמות מעמודי חסימה של Radware או פרסומות
+                    if "perfdrive.com" in res_url or any(bad in res_url for bad in ["adsystem", "doubleclick", "track", "banner"]):
                         return
 
-                    if ".m3u8" in res_url or "immergo" in res_url or "keshet-vod" in res_url or "mako" in res_url:
+                    if ".m3u8" in res_url or "keshet-vod" in res_url or "mako" in res_url:
                         if "playlist.m3u8" in res_url or "master" in res_url or "vod" in res_url or "ch14" in res_url:
                             found_stream = response.url
                             print(f"Caught target stream in URL: {response.url}", flush=True)
@@ -100,7 +116,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                         matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
                         for m in matches:
                             m_clean = m.replace('\\/', '/')
-                            if "ad" not in m_clean.lower():
+                            if "perfdrive" not in m_clean.lower() and "ad" not in m_clean.lower():
                                 found_stream = m_clean
                                 print(f"Caught target stream in API body: {m_clean}", flush=True)
                                 return
@@ -110,21 +126,21 @@ def extract_hidden_m3u8(url, season=None, episode=None):
             page.on("response", inspect_response)
 
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.goto(url, wait_until="domcontentloaded", timeout=25000)
                 
                 page.mouse.wheel(0, 500)
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(4000)
 
                 if episode:
                     try:
-                        print(f"Searching for Season {season or 1}, Episode {episode}...", flush=True)
+                        print(f"Searching for Episode {episode}...", flush=True)
                         ep_locator = page.locator(f"text=פרק {episode}").first
                         if ep_locator.is_visible():
                             ep_locator.click(timeout=3000)
                             print(f"Clicked Episode {episode} successfully!", flush=True)
-                            page.wait_for_timeout(3000)
+                            page.wait_for_timeout(4000)
                     except Exception as ex:
-                        print(f"Episode click fallback note: {ex}", flush=True)
+                        print(f"Episode click note: {ex}", flush=True)
                 else:
                     for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']"]:
                         try:
@@ -148,7 +164,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                     content = page.content().replace('\\/', '/')
                     html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
                     for hm in html_matches:
-                        if "ad" not in hm.lower():
+                        if "perfdrive" not in hm.lower() and "ad" not in hm.lower():
                             found_stream = hm
                             print(f"Caught stream in HTML: {hm}", flush=True)
                             break
@@ -162,7 +178,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
         if found_stream:
             return found_stream
         else:
-            raise RuntimeError("הדפדפן סרק את העמוד אך לא הצליח לאתר את קישור הסטרימינג.")
+            raise RuntimeError("הדפדפן סרק את העמוד אך לא הצליח לאתר את קישור הסטרימינג (יתכן וחסימת האתר מנעה טעינה).")
 
     except Exception as e:
         print(f"Scraper error: {e}", flush=True)
@@ -409,7 +425,7 @@ def build_ytdlp_options(
         options["http_headers"] = {
             "Accept": "*/*",
             "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
     if use_proxy:
