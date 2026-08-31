@@ -81,7 +81,7 @@ def detect_platform(url):
     if "tiktok.com" in u:
         return "tiktok"
         
-    if any(domain in u for domain in ["mako.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "ynet.co.il"]):
+    if any(domain in u for domain in ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]):
         return "news_il"
 
     return "other"
@@ -112,7 +112,7 @@ VIDEO_URL_PATTERNS = [
     ),
     re.compile(
         r"(https?://)?(www\.)?"
-        r"(mako\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|ynet\.co\.il)/"
+        r"(mako\.co\.il|n12\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|c14\.co\.il|ynet\.co\.il)/"
         r".+",
         re.IGNORECASE
     ),
@@ -329,6 +329,9 @@ def build_ytdlp_options(
         "nopart": False,
         "check_formats": "selected",
     }
+    
+    if platform == "news_il":
+        options["impersonate"] = "chrome"
 
     if use_proxy:
         options["proxy"] = TOR_PROXY_URL
