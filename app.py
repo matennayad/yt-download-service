@@ -181,6 +181,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
         print(f"Scraper error: {e}", flush=True)
         raise RuntimeError(f"שגיאה בסריקה: {str(e)}")
 
+
 # ============================================================
 # PLATFORM DETECTION
 # ============================================================
@@ -389,7 +390,8 @@ def build_ytdlp_options(
     use_cookies,
     platform="youtube",
     diagnostic=False,
-    use_proxy=False
+    use_proxy=False,
+    cookies_str=""
 ):
     outtmpl = os.path.join(
         tmp_dir,
@@ -426,6 +428,8 @@ def build_ytdlp_options(
             "Referer": "https://www.mako.co.il/",
             "Origin": "https://www.mako.co.il"
         }
+        if cookies_str:
+            options["http_headers"]["Cookie"] = cookies_str
 
     if use_proxy:
         options["proxy"] = TOR_PROXY_URL
@@ -549,7 +553,8 @@ def _try_download_once(
     player_clients,
     use_cookies,
     platform="youtube",
-    use_proxy=False
+    use_proxy=False,
+    cookies_str=""
 ):
     ydl_opts = build_ytdlp_options(
         tmp_dir=tmp_dir,
@@ -558,7 +563,8 @@ def _try_download_once(
         use_cookies=use_cookies,
         platform=platform,
         diagnostic=False,
-        use_proxy=use_proxy
+        use_proxy=use_proxy,
+        cookies_str=cookies_str
     )
 
     print(
@@ -598,7 +604,8 @@ def download_video(
     tmp_dir,
     player_clients=None,
     use_cookies=True,
-    use_proxy=False
+    use_proxy=False,
+    cookies_str=""
 ):
     platform = detect_platform(url)
     attempts = []
@@ -655,7 +662,8 @@ def download_video(
                     player_clients=clients,
                     use_cookies=cookies_flag,
                     platform=platform,
-                    use_proxy=use_proxy
+                    use_proxy=use_proxy,
+                    cookies_str=cookies_str
                 )
 
                 print(
@@ -725,10 +733,11 @@ def list_formats():
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
 
+    cookies_str = ""
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
     if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
-            url = extract_hidden_m3u8(url, season=season, episode=episode)
+            url, cookies_str = extract_hidden_m3u8(url, season=season, episode=episode)
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 400
 
@@ -759,7 +768,8 @@ def list_formats():
                 use_cookies=use_cookies,
                 platform=platform,
                 diagnostic=True,
-                use_proxy=use_proxy
+                use_proxy=use_proxy,
+                cookies_str=cookies_str
             )
             ydl_opts["skip_download"] = True
 
@@ -853,10 +863,11 @@ def download():
     if fmt not in ("audio", "video", "auto"):
         return jsonify({"success": False, "error": "format must be 'audio', 'video' or 'auto'"}), 400
 
+    cookies_str = ""
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
     if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
-            url = extract_hidden_m3u8(url, season=season, episode=episode)
+            url, cookies_str = extract_hidden_m3u8(url, season=season, episode=episode)
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 400
 
@@ -883,7 +894,8 @@ def download():
                 tmp_dir=tmp_dir,
                 player_clients=player_clients,
                 use_cookies=use_cookies,
-                use_proxy=use_proxy
+                use_proxy=use_proxy,
+                cookies_str=cookies_str
             )
 
             drive_link, file_id = upload_to_drive(local_path, os.path.basename(local_path))
