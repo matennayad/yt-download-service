@@ -415,6 +415,7 @@ def build_ytdlp_options(
         "continuedl": True,
         "nopart": False,
         "check_formats": "selected",
+        "hls_use_mpegts": True,
     }
     
     if platform == "news_il":
