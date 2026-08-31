@@ -4,6 +4,7 @@ import tempfile
 import traceback
 import urllib.request
 import json
+import subprocess
 
 from flask import Flask, request, jsonify
 import yt_dlp
@@ -418,6 +419,7 @@ def build_ytdlp_options(
         "nopart": False,
         "check_formats": "selected",
         "hls_use_mpegts": True,
+        "nocheckcertificate": True,
     }
     
     if platform == "news_il":
@@ -428,8 +430,6 @@ def build_ytdlp_options(
             "Referer": "https://www.mako.co.il/",
             "Origin": "https://www.mako.co.il"
         }
-        
-        # אם יש עוגיות שחילקנו מהדפדפן, נכתוב אותן לקובץ זמני ונשתמש בו כ-cookiefile כדי לעקוף את חסימת ה-403
         if cookies_str:
             dyn_cookie_path = os.path.join(tmp_dir, "dyn_cookies.txt")
             with open(dyn_cookie_path, "w", encoding="utf-8") as cf:
@@ -437,7 +437,6 @@ def build_ytdlp_options(
                 for c_item in cookies_str.split("; "):
                     if "=" in c_item:
                         c_name, c_val = c_item.split("=", 1)
-                        # פורמט Netscape בסיסי עבור yt-dlp
                         cf.write(f".mako.co.il\tTRUE\t/\tTRUE\t0\t{c_name.strip()}\t{c_val.strip()}\n")
             options["cookiefile"] = dyn_cookie_path
 
@@ -473,14 +472,27 @@ def build_ytdlp_options(
         )
         options["merge_output_format"] = "mp4"
 
+    if use_cookies and platform == "youtube":
+        cookies_path = write_cookies_file(
+            tmp_dir
+        )
+        if cookies_path:
+            options["cookiefile"] = cookies_path
+            print("yt-dlp configuration: Cookies ENABLED", flush=True)
+        else:
+            print("yt-dlp configuration: Cookies REQUESTED but unavailable", flush=True)
+    else:
+        print("yt-dlp configuration: Cookies DISABLED", flush=True)
+
     return options
+
 
 # ============================================================
 # FIND FINAL FILE
 # ============================================================
 
 def find_downloaded_file(tmp_dir, fmt):
-    ignored = {"cookies.txt"}
+    ignored = {"cookies.txt", "dyn_cookies.txt"}
     candidates = []
 
     for root, dirs, files in os.walk(tmp_dir):
@@ -540,6 +552,32 @@ def find_downloaded_file(tmp_dir, fmt):
 
 
 # ============================================================
+# FFMPEG DIRECT DOWNLOAD FOR M3U8 (Fallback/Alternative)
+# ============================================================
+
+def download_m3u8_with_ffmpeg(m3u8_url, output_path, cookies_str=""):
+    headers = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\nReferer: https://www.mako.co.il/\r\n"
+    if cookies_str:
+        headers += f"Cookie: {cookies_str}\r\n"
+
+    cmd = [
+        "ffmpeg",
+        "-headers", headers,
+        "-i", m3u8_url,
+        "-c", "copy",
+        "-bsf:a", "aac_adtstoasc",
+        output_path,
+        "-y"
+    ]
+    
+    print(f"Running ffmpeg download for m3u8...", flush=True)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg failed: {result.stderr[-300:]}")
+    return output_path
+
+
+# ============================================================
 # ONE DOWNLOAD ATTEMPT
 # ============================================================
 
@@ -553,6 +591,16 @@ def _try_download_once(
     use_proxy=False,
     cookies_str=""
 ):
+    if platform == "news_il" and ".m3u8" in url.lower():
+        output_ext = "mp3" if fmt == "audio" else "mp4"
+        output_path = os.path.join(tmp_dir, f"downloaded_stream.{output_ext}")
+        try:
+            download_m3u8_with_ffmpeg(url, output_path, cookies_str)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path, "m3u8_stream"
+        except Exception as ex:
+            print(f"FFmpeg direct download failed, falling back to yt-dlp: {ex}", flush=True)
+
     ydl_opts = build_ytdlp_options(
         tmp_dir=tmp_dir,
         fmt=fmt,
@@ -664,7 +712,7 @@ def download_video(
                 )
 
                 print(
-                    "SUCCESSFUL yt-dlp attempt:",
+                    "SUCCESSFUL download attempt:",
                     {
                         "platform": platform,
                         "format": target_fmt,
@@ -689,7 +737,7 @@ def download_video(
                 continue
 
     if last_error:
-        raise RuntimeError(f"כל ניסיונות ההורדה נכשלו. yt-dlp האחרון החזיר: {repr(last_error)}")
+        raise RuntimeError(f"כל ניסיונות ההורדה נכשלו. השגיאה האחרונה: {repr(last_error)}")
 
     raise RuntimeError("כל ניסיונות ההורדה נכשלו")
 
