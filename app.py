@@ -422,7 +422,8 @@ def build_ytdlp_options(
             "Accept": "*/*",
             "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://www.mako.co.il/"
+            "Referer": "https://www.mako.co.il/",
+            "Origin": "https://www.mako.co.il"
         }
 
     if use_proxy:
