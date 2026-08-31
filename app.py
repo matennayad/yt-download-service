@@ -69,8 +69,8 @@ YTDLP_VERSION = getattr(
 # ============================================================
 
 def extract_hidden_m3u8(url):
-    print(f"Starting Virtual Browser for: {url}", flush=True)
-    found_m3u8 = None
+    print(f"Starting Smart Ad-Aware Browser for: {url}", flush=True)
+    all_m3u8_links = []
 
     try:
         with sync_playwright() as p:
@@ -78,29 +78,66 @@ def extract_hidden_m3u8(url):
                 headless=True,
                 args=['--no-sandbox', '--disable-setuid-sandbox']
             )
-            page = browser.new_page()
+            page = browser.new_page(viewport={'width': 1280, height: 800})
 
             def log_request(request):
-                nonlocal found_m3u8
+                nonlocal all_m3u8_links
                 if ".m3u8" in request.url:
-                    if not found_m3u8 or "master" in request.url.lower():
-                        found_m3u8 = request.url
+                    url_lower = request.url.lower()
+                    # סינון קישורי פרסומות ברורים
+                    if "ad" in url_lower or "pre-roll" in url_lower or "track" in url_lower:
+                        return
+                    if request.url not in all_m3u8_links:
+                        all_m3u8_links.append(request.url)
+                        print(f"Captured stream link: {request.url}", flush=True)
 
             page.on("request", log_request)
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                
+                # גלילה לאזור הנגן
+                page.mouse.wheel(0, 350)
+                page.wait_for_timeout(2000)
+
+                # לחיצה על הנגן כדי להעיר אותו
+                for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']"]:
+                    try:
+                        element = page.locator(selector).first
+                        if element.is_visible():
+                            element.click(timeout=2000)
+                            break
+                    except:
+                        continue
+
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            page.wait_for_timeout(5000)
+            # נותנים זמן ארוך יותר (10 שניות) כדי שהפרסומות יעברו 
+            # והסרטון האמיתי של הכתבה יתחיל לנגן מאחורי הקלעים
+            print("Waiting for ads to finish and main video to load...", flush=True)
+            page.wait_for_timeout(10000)
+
+            # בדיקה אם הופיע כפתור "דלג על פרסומת" ולחיצה עליו
+            try:
+                skip_btn = page.locator(".skip-button, .ad-skip, button:has-text('דלג')").first
+                if skip_btn.is_visible():
+                    skip_btn.click(timeout=1000)
+                    print("Clicked Skip Ad button!", flush=True)
+                    page.wait_for_timeout(4000)
+            except:
+                pass
+
             browser.close()
 
-        if found_m3u8:
-            print(f"Virtual Browser caught m3u8: {found_m3u8}", flush=True)
-            return found_m3u8
+        if all_m3u8_links:
+            # בדרך כלל הקישור האמיתי והסופי של הכתבה הוא האחרון ברשימה אחרי שהפרסומות נגמרו
+            master_links = [l for l in all_m3u8_links if "master" in l.lower()]
+            best_link = master_links[-1] if master_links else all_m3u8_links[-1]
+            print(f"Selected final main video link: {best_link}", flush=True)
+            return best_link
         else:
-            raise RuntimeError("לא נמצא קישור וידאו. ייתכן ואין סרטון בכתבה או שהאתר שינה את המבנה שלו.")
+            raise RuntimeError("לא נמצא קישור וידאו לאחר מעבר על הפרסומות.")
 
     except Exception as e:
         print(f"Virtual browser error: {e}", flush=True)
