@@ -298,7 +298,6 @@ def build_ytdlp_options(
     }
     
     if platform == "news_il":
-        options["impersonate"] = "chrome"
         options["http_headers"] = {
             "Accept": "*/*",
             "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
