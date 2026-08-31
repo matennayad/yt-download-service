@@ -72,6 +72,7 @@ YTDLP_VERSION = getattr(
 def extract_hidden_m3u8(url, season=None, episode=None):
     print(f"Starting Strict Stream Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
     found_stream = None
+    cookies_str = ""
 
     try:
         with sync_playwright() as p:
@@ -99,7 +100,6 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 nonlocal found_stream
                 try:
                     res_url = response.url.lower()
-                    
                     if any(x in res_url for x in ["google-analytics", "googletagmanager", "googleadservices", "perfdrive", "analytics", "collect", "pixel", "track"]):
                         return
 
@@ -124,7 +124,6 @@ def extract_hidden_m3u8(url, season=None, episode=None):
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                
                 page.mouse.wheel(0, 500)
                 page.wait_for_timeout(4000)
 
@@ -156,7 +155,6 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 if found_stream:
                     break
                 page.wait_for_timeout(2000)
-                
                 try:
                     content = page.content().replace('\\/', '/')
                     html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
@@ -170,10 +168,12 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 if found_stream:
                     break
 
+            cookies = context.cookies()
+            cookies_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
             browser.close()
 
         if found_stream:
-            return found_stream
+            return found_stream, cookies_str
         else:
             raise RuntimeError("הדפדפן סרק את העמוד אך לא נמצא קישור m3u8 תקף.")
 
