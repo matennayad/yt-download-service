@@ -70,7 +70,7 @@ YTDLP_VERSION = getattr(
 # ============================================================
 
 def extract_hidden_m3u8(url, season=None, episode=None):
-    print(f"Starting Anti-Bot Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
+    print(f"Starting Strict Stream Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
     found_stream = None
 
     try:
@@ -86,7 +86,6 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 ]
             )
             
-            # יצירת הקשר דפדפן שמזطה דפדפן אמיתי לגמרי כדי לעקוף את ההגנה של מאקו
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -101,24 +100,25 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 try:
                     res_url = response.url.lower()
                     
-                    # התעלמות מעמודי חסימה של Radware או פרסומות
-                    if "perfdrive.com" in res_url or any(bad in res_url for bad in ["adsystem", "doubleclick", "track", "banner"]):
+                    # סינון מחמיר: חוסמים לחלוטין גוגל אנליטיקס, מעקבים, פרסומות וכתובות שאינן m3u8
+                    if any(x in res_url for x in ["google-analytics", "googletagmanager", "googleadservices", "perfdrive", "analytics", "collect", "pixel", "track"]):
                         return
 
-                    if ".m3u8" in res_url or "keshet-vod" in res_url or "mako" in res_url:
-                        if "playlist.m3u8" in res_url or "master" in res_url or "vod" in res_url or "ch14" in res_url:
-                            found_stream = response.url
-                            print(f"Caught target stream in URL: {response.url}", flush=True)
-                            return
+                    # מחפשים אך ורק כתובת אמיתית שמכילה m3u8 או keshet-vod
+                    if ".m3u8" in res_url or "keshet-vod" in res_url:
+                        found_stream = response.url
+                        print(f"Successfully caught real stream URL: {response.url}", flush=True)
+                        return
 
+                    # בדיקה האם תוכן ה-JSON/API מכיל קישור מובהק ל-m3u8
                     if any(t in response.headers.get("content-type", "").lower() for t in ["json", "text", "javascript"]):
                         body = response.text()
                         matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
                         for m in matches:
                             m_clean = m.replace('\\/', '/')
-                            if "perfdrive" not in m_clean.lower() and "ad" not in m_clean.lower():
+                            if not any(x in m_clean.lower() for x in ["analytics", "google", "ad"]):
                                 found_stream = m_clean
-                                print(f"Caught target stream in API body: {m_clean}", flush=True)
+                                print(f"Successfully caught stream inside API body: {m_clean}", flush=True)
                                 return
                 except:
                     pass
@@ -154,8 +154,8 @@ def extract_hidden_m3u8(url, season=None, episode=None):
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            print("Waiting for stream initialization...", flush=True)
-            for _ in range(15):
+            print("Waiting for real stream initialization...", flush=True)
+            for _ in range(20):
                 if found_stream:
                     break
                 page.wait_for_timeout(2000)
@@ -164,7 +164,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                     content = page.content().replace('\\/', '/')
                     html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
                     for hm in html_matches:
-                        if "perfdrive" not in hm.lower() and "ad" not in hm.lower():
+                        if not any(x in hm.lower() for x in ["analytics", "google", "ad"]):
                             found_stream = hm
                             print(f"Caught stream in HTML: {hm}", flush=True)
                             break
@@ -178,12 +178,11 @@ def extract_hidden_m3u8(url, season=None, episode=None):
         if found_stream:
             return found_stream
         else:
-            raise RuntimeError("הדפדפן סרק את העמוד אך לא הצליח לאתר את קישור הסטרימינג (יתכן וחסימת האתר מנעה טעינה).")
+            raise RuntimeError("הדפדפן סרק את העמוד אך לא נמצא קישור m3u8 תקף לפדיחה.")
 
     except Exception as e:
         print(f"Scraper error: {e}", flush=True)
         raise RuntimeError(f"שגיאה בסריקה: {str(e)}")
-
 
 # ============================================================
 # PLATFORM DETECTION
