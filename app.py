@@ -66,56 +66,36 @@ YTDLP_VERSION = getattr(
 # ============================================================
 
 def detect_platform(url):
-
     if not url:
         return "other"
-
+    
     u = url.lower()
-
+    
     if "youtube.com" in u or "youtu.be" in u:
         return "youtube"
-
+    
     if "instagram.com" in u:
         return "instagram"
-
+    
     if "tiktok.com" in u:
         return "tiktok"
         
-    if any(domain in u for domain in ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]):
+    if any(domain in u for domain in ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il", "immergo.tv", ".m3u8"]):
         return "news_il"
 
     return "other"
 
 
 # ============================================================
-# VIDEO URL VALIDATION (multi-platform + Israeli News)
+# VIDEO URL VALIDATION (multi-platform + Israeli News + m3u8)
 # ============================================================
 
 VIDEO_URL_PATTERNS = [
-    re.compile(
-        r"(https?://)?(www\.)?"
-        r"(youtube\.com/watch\?v=|youtu\.be/)"
-        r"[\w\-]+[^\s]*",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"(https?://)?(www\.)?"
-        r"instagram\.com/(p|reel|reels|tv)/"
-        r"[\w\-]+[^\s]*",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"(https?://)?(www\.|vm\.|vt\.)?"
-        r"tiktok\.com/"
-        r"(@[\w.\-]+/video/\d+|[\w]+)[^\s]*",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"(https?://)?(www\.)?"
-        r"(mako\.co\.il|n12\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|c14\.co\.il|ynet\.co\.il)/"
-        r".+",
-        re.IGNORECASE
-    ),
+    re.compile(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w\-]+[^\s]*", re.IGNORECASE),
+    re.compile(r"(https?://)?(www\.)?instagram\.com/(p|reel|reels|tv)/[\w\-]+[^\s]*", re.IGNORECASE),
+    re.compile(r"(https?://)?(www\.|vm\.|vt\.)?tiktok\.com/(@[\w.\-]+/video/\d+|[\w]+)[^\s]*", re.IGNORECASE),
+    re.compile(r"(https?://)?([a-zA-Z0-9-]+\.)?(mako\.co\.il|n12\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|c14\.co\.il|ynet\.co\.il|immergo\.tv)/.+", re.IGNORECASE),
+    re.compile(r".*\.m3u8.*", re.IGNORECASE)
 ]
 
 
