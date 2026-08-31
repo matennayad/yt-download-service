@@ -69,8 +69,12 @@ YTDLP_VERSION = getattr(
 # DEEP SMART SCRAPER (Deep API & Response Inspection)
 # ============================================================
 
+# ============================================================
+# DEEP SMART SCRAPER (Anti-Live & API Inspection)
+# ============================================================
+
 def extract_hidden_m3u8(url):
-    print(f"Starting Deep Virtual Browser for: {url}", flush=True)
+    print(f"Starting Deep Virtual Browser (Anti-Live) for: {url}", flush=True)
     found_stream = None
 
     try:
@@ -85,21 +89,26 @@ def extract_hidden_m3u8(url):
                 nonlocal found_stream
                 try:
                     res_url = response.url.lower()
+                    
+                    # סינון קריטי: מתעלמים לחלוטין מפרסומות, מעקב ומהשידור החי (Live) של הערוץ!
+                    if any(bad in res_url for bad in ["live", "ch14/live", "ad", "banner", "track"]):
+                        return
+
                     if ".m3u8" in res_url or "immergo" in res_url:
-                        if "ad" not in res_url and "track" not in res_url:
-                            if not found_stream or "master" in res_url:
-                                found_stream = response.url
-                                print(f"Caught stream in URL: {response.url}", flush=True)
-                                return
+                        if not found_stream or "master" in res_url or "vod" in res_url:
+                            found_stream = response.url
+                            print(f"Caught clean article stream in URL: {response.url}", flush=True)
+                            return
 
                     if any(t in response.headers.get("content-type", "").lower() for t in ["json", "text", "javascript"]):
                         body = response.text()
                         matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
                         for m in matches:
                             m_clean = m.replace('\\/', '/')
-                            if "ad" not in m_clean.lower():
+                            m_lower = m_clean.lower()
+                            if not any(bad in m_lower for bad in ["live", "ch14/live", "ad", "banner"]):
                                 found_stream = m_clean
-                                print(f"Caught stream inside API response body: {m_clean}", flush=True)
+                                print(f"Caught clean article stream in API body: {m_clean}", flush=True)
                                 return
                 except:
                     pass
@@ -109,14 +118,17 @@ def extract_hidden_m3u8(url):
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 
-                page.mouse.wheel(0, 400)
+                # גלילה עמוקה יותר לתוך הכתבה עצמה כדי להתרחק מהשידור החי הצף
+                page.mouse.wheel(0, 600)
                 page.wait_for_timeout(3000)
 
-                for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']", "iframe"]:
+                # לחיצה ממוקדת על נגן הכתבה
+                for selector in [".article-video video", ".immergo-player", "div[class*='video'] video", "iframe"]:
                     try:
                         element = page.locator(selector).first
                         if element.is_visible():
                             element.click(timeout=2000)
+                            print(f"Clicked article player via: {selector}", flush=True)
                             break
                     except:
                         continue
@@ -124,7 +136,7 @@ def extract_hidden_m3u8(url):
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            print("Waiting for player API and streams to initialize...", flush=True)
+            print("Waiting for article video stream to initialize...", flush=True)
             for _ in range(15):
                 if found_stream:
                     break
@@ -134,9 +146,10 @@ def extract_hidden_m3u8(url):
                     content = page.content().replace('\\/', '/')
                     html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
                     for hm in html_matches:
-                        if "ad" not in hm.lower():
+                        hm_lower = hm.lower()
+                        if not any(bad in hm_lower for bad in ["live", "ch14/live", "ad"]):
                             found_stream = hm
-                            print(f"Caught stream in page HTML: {hm}", flush=True)
+                            print(f"Caught clean stream in HTML: {hm}", flush=True)
                             break
                 except:
                     pass
@@ -148,7 +161,7 @@ def extract_hidden_m3u8(url):
         if found_stream:
             return found_stream
         else:
-            raise RuntimeError("הדפדפן סרק את ה-API והעמוד אך לא מצא קישור סטרימינג פעיל.")
+            raise RuntimeError("הדפדפן סרק את הכתבה אך מצא רק שידור חי או שלא מצא סרטון.")
 
     except Exception as e:
         print(f"Deep virtual browser error: {e}", flush=True)
