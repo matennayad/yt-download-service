@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import traceback
+import urllib.request
 
 from flask import Flask, request, jsonify
 import yt_dlp
@@ -62,6 +63,61 @@ YTDLP_VERSION = getattr(
 
 
 # ============================================================
+# SCRAPE M3U8 FROM ISRAELI NEWS SITES
+# ============================================================
+
+def extract_hidden_m3u8(url):
+    try:
+        print(f"Scraping webpage for hidden m3u8: {url}", flush=True)
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'}
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode('utf-8')
+        
+        # חיפוש קישורי m3u8 ישירים בדף
+        matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', html)
+        cleaned_matches = [m.replace('\\/', '/') for m in matches]
+        
+        if cleaned_matches:
+            master_links = [m for m in cleaned_matches if 'master.m3u8' in m.lower()]
+            best_link = master_links[0] if master_links else cleaned_matches[0]
+            print(f"Found direct m3u8 link: {best_link}", flush=True)
+            return best_link
+            
+        # אם לא נמצא, חיפוש נגן פנימי (iframe) כמו של immergo
+        iframe_matches = re.findall(r'<iframe[^>]+src=["\'](https?://[^"\'<>\s]+)["\']', html)
+        for iframe_url in iframe_matches:
+            iframe_url = iframe_url.replace('\\/', '/')
+            print(f"Found iframe: {iframe_url}, checking inside...", flush=True)
+            
+            req2 = urllib.request.Request(
+                iframe_url, 
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
+                    'Referer': url
+                }
+            )
+            with urllib.request.urlopen(req2, timeout=10) as res2:
+                html2 = res2.read().decode('utf-8')
+            
+            matches2 = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', html2)
+            cleaned_matches2 = [m.replace('\\/', '/') for m in matches2]
+            
+            if cleaned_matches2:
+                master_links2 = [m for m in cleaned_matches2 if 'master.m3u8' in m.lower()]
+                best_link2 = master_links2[0] if master_links2 else cleaned_matches2[0]
+                print(f"Found m3u8 link in iframe: {best_link2}", flush=True)
+                return best_link2
+
+    except Exception as e:
+        print(f"Error scraping webpage: {e}", flush=True)
+        
+    return url
+
+
+# ============================================================
 # PLATFORM DETECTION
 # ============================================================
 
@@ -102,9 +158,7 @@ VIDEO_URL_PATTERNS = [
 def is_valid_video_url(url):
     if not url:
         return False
-
     text = url.strip()
-
     return any(
         pattern.match(text)
         for pattern in VIDEO_URL_PATTERNS
@@ -124,21 +178,12 @@ def get_drive_service():
         client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
         scopes=DRIVE_SCOPES,
     )
-
-    creds.refresh(
-        GoogleAuthRequest()
-    )
-
-    return build(
-        "drive",
-        "v3",
-        credentials=creds
-    )
+    creds.refresh(GoogleAuthRequest())
+    return build("drive", "v3", credentials=creds)
 
 
 def upload_to_drive(local_path, filename):
     service = get_drive_service()
-
     file_metadata = {
         "name": filename,
         "parents": (
@@ -147,18 +192,15 @@ def upload_to_drive(local_path, filename):
             else []
         )
     }
-
     media = MediaFileUpload(
         local_path,
         resumable=True
     )
-
     uploaded = service.files().create(
         body=file_metadata,
         media_body=media,
         fields="id, webViewLink"
     ).execute()
-
     return (
         uploaded.get("webViewLink"),
         uploaded.get("id")
@@ -173,35 +215,17 @@ def write_cookies_file(tmp_dir):
     if not YOUTUBE_COOKIES:
         print("YOUTUBE_COOKIES: NOT CONFIGURED", flush=True)
         return None
-
-    cookies_path = os.path.join(
-        tmp_dir,
-        "cookies.txt"
-    )
-
-    with open(
-        cookies_path,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    cookies_path = os.path.join(tmp_dir, "cookies.txt")
+    with open(cookies_path, "w", encoding="utf-8") as f:
         f.write(YOUTUBE_COOKIES)
-
     try:
-        size = os.path.getsize(
-            cookies_path
-        )
+        size = os.path.getsize(cookies_path)
     except OSError:
         size = 0
-
-    print(
-        "YOUTUBE_COOKIES: configured, "
-        f"cookies.txt created ({size} bytes)", flush=True
-    )
-
+    print(f"YOUTUBE_COOKIES: configured, cookies.txt created ({size} bytes)", flush=True)
     if size == 0:
         print("WARNING: cookies.txt is empty", flush=True)
         return None
-
     return cookies_path
 
 
@@ -212,23 +236,19 @@ def write_cookies_file(tmp_dir):
 def normalize_player_clients(player_clients):
     if player_clients is None:
         return None
-
     if isinstance(player_clients, str):
         player_clients = [
             x.strip()
             for x in player_clients.split(",")
             if x.strip()
         ]
-
     if not isinstance(player_clients, list):
         return None
-
     result = [
         str(x).strip()
         for x in player_clients
         if str(x).strip()
     ]
-
     return result or None
 
 
@@ -271,10 +291,7 @@ def build_ytdlp_options(
     diagnostic=False,
     use_proxy=False
 ):
-    outtmpl = os.path.join(
-        tmp_dir,
-        "%(title)s.%(ext)s"
-    )
+    outtmpl = os.path.join(tmp_dir, "%(title)s.%(ext)s")
 
     extractor_args = {
         "youtubepot-bgutilhttp": {
@@ -317,11 +334,7 @@ def build_ytdlp_options(
         options["no_warnings"] = True
 
     if fmt == "audio":
-        options["format"] = (
-            "bestaudio[acodec!=none]/"
-            "best[acodec!=none]/"
-            "best"
-        )
+        options["format"] = "bestaudio[acodec!=none]/best[acodec!=none]/best"
         options["postprocessors"] = [
             {
                 "key": "FFmpegExtractAudio",
@@ -330,18 +343,11 @@ def build_ytdlp_options(
             }
         ]
     else:
-        options["format"] = (
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
-            "bestvideo+bestaudio/"
-            "best[ext=mp4]/"
-            "best"
-        )
+        options["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
         options["merge_output_format"] = "mp4"
 
     if use_cookies and platform == "youtube":
-        cookies_path = write_cookies_file(
-            tmp_dir
-        )
+        cookies_path = write_cookies_file(tmp_dir)
         if cookies_path:
             options["cookiefile"] = cookies_path
             print("yt-dlp configuration: Cookies ENABLED", flush=True)
@@ -363,11 +369,7 @@ def find_downloaded_file(tmp_dir, fmt):
 
     for root, dirs, files in os.walk(tmp_dir):
         for filename in files:
-            if filename in ignored:
-                continue
-            if filename.endswith(".part"):
-                continue
-            if filename.endswith(".ytdl"):
+            if filename in ignored or filename.endswith(".part") or filename.endswith(".ytdl"):
                 continue
 
             full_path = os.path.join(root, filename)
@@ -383,7 +385,6 @@ def find_downloaded_file(tmp_dir, fmt):
                 continue
 
             lower_name = filename.lower()
-
             if fmt == "audio":
                 allowed = (".mp3", ".m4a", ".opus", ".webm", ".aac", ".wav")
             else:
@@ -601,6 +602,10 @@ def list_formats():
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
+        
+    # אוטומציה: סורק את דף האינטרנט כדי למצוא את קישור הוידאו הנסתר
+    if "c14.co.il" in url.lower() or "now14.co.il" in url.lower():
+        url = extract_hidden_m3u8(url)
 
     platform = detect_platform(url)
     player_clients = normalize_player_clients(player_clients)
@@ -720,6 +725,10 @@ def download():
 
     if fmt not in ("audio", "video", "auto"):
         return jsonify({"success": False, "error": "format must be 'audio', 'video' or 'auto'"}), 400
+
+    # אוטומציה: סורק את דף האינטרנט כדי למצוא את קישור הוידאו הנסתר
+    if "c14.co.il" in url.lower() or "now14.co.il" in url.lower():
+        url = extract_hidden_m3u8(url)
 
     platform = detect_platform(url)
 
