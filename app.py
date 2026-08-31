@@ -100,17 +100,14 @@ def extract_hidden_m3u8(url, season=None, episode=None):
                 try:
                     res_url = response.url.lower()
                     
-                    # סינון מחמיר: חוסמים לחלוטין גוגל אנליטיקס, מעקבים, פרסומות וכתובות שאינן m3u8
                     if any(x in res_url for x in ["google-analytics", "googletagmanager", "googleadservices", "perfdrive", "analytics", "collect", "pixel", "track"]):
                         return
 
-                    # מחפשים אך ורק כתובת אמיתית שמכילה m3u8 או keshet-vod
                     if ".m3u8" in res_url or "keshet-vod" in res_url:
                         found_stream = response.url
                         print(f"Successfully caught real stream URL: {response.url}", flush=True)
                         return
 
-                    # בדיקה האם תוכן ה-JSON/API מכיל קישור מובהק ל-m3u8
                     if any(t in response.headers.get("content-type", "").lower() for t in ["json", "text", "javascript"]):
                         body = response.text()
                         matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
@@ -178,7 +175,7 @@ def extract_hidden_m3u8(url, season=None, episode=None):
         if found_stream:
             return found_stream
         else:
-            raise RuntimeError("הדפדפן סרק את העמוד אך לא נמצא קישור m3u8 תקף לפדיחה.")
+            raise RuntimeError("הדפדפן סרק את העמוד אך לא נמצא קישור m3u8 תקף.")
 
     except Exception as e:
         print(f"Scraper error: {e}", flush=True)
