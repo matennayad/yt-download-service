@@ -23,6 +23,12 @@ RUN pip3 install \
     -r requirements.txt
 
 # ============================================================
+# VIRTUAL BROWSER (Playwright)
+# ============================================================
+RUN pip3 install --no-cache-dir --break-system-packages playwright
+RUN playwright install --with-deps chromium
+
+# ============================================================
 # BGUTIL PO TOKEN PROVIDER
 # ============================================================
 RUN git clone \
@@ -49,7 +55,4 @@ EXPOSE 8080
 # ============================================================
 # START
 # ============================================================
-# מפעיל ברקע את שרת ה-PO token provider (Node, פורט 4416 - זה מה ש-app.py
-# מצפה לו דרך pot_provider: http://127.0.0.1:4416), ואז מריץ בחזית את
-# שרת ה-Flask עצמו (exec כדי שהוא יהיה התהליך הראשי של הקונטיינר).
 CMD ["sh", "-c", "PORT=4416 node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & exec python3 app.py"]
