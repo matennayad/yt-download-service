@@ -91,7 +91,7 @@ def detect_platform(url):
 # ============================================================
 
 VIDEO_URL_PATTERNS = [
-    re.compile(r"(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[\w\-]+[^\s]*", re.IGNORECASE),
+    re.compile(r"(https?://)?(www\.)?(youtube\.com/(watch\?v=|shorts/)|youtu\.be/)[\w\-]+[^\s]*", re.IGNORECASE),
     re.compile(r"(https?://)?(www\.)?instagram\.com/(p|reel|reels|tv)/[\w\-]+[^\s]*", re.IGNORECASE),
     re.compile(r"(https?://)?(www\.|vm\.|vt\.)?tiktok\.com/(@[\w.\-]+/video/\d+|[\w]+)[^\s]*", re.IGNORECASE),
     re.compile(r"(https?://)?([a-zA-Z0-9-]+\.)?(mako\.co\.il|n12\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|c14\.co\.il|ynet\.co\.il|immergo\.tv)/.+", re.IGNORECASE),
@@ -100,7 +100,6 @@ VIDEO_URL_PATTERNS = [
 
 
 def is_valid_video_url(url):
-
     if not url:
         return False
 
@@ -117,7 +116,6 @@ def is_valid_video_url(url):
 # ============================================================
 
 def get_drive_service():
-
     creds = Credentials(
         token=None,
         refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
@@ -139,7 +137,6 @@ def get_drive_service():
 
 
 def upload_to_drive(local_path, filename):
-
     service = get_drive_service()
 
     file_metadata = {
@@ -173,11 +170,8 @@ def upload_to_drive(local_path, filename):
 # ============================================================
 
 def write_cookies_file(tmp_dir):
-
     if not YOUTUBE_COOKIES:
-        print(
-            "YOUTUBE_COOKIES: NOT CONFIGURED", flush=True
-        )
+        print("YOUTUBE_COOKIES: NOT CONFIGURED", flush=True)
         return None
 
     cookies_path = os.path.join(
@@ -205,9 +199,7 @@ def write_cookies_file(tmp_dir):
     )
 
     if size == 0:
-        print(
-            "WARNING: cookies.txt is empty", flush=True
-        )
+        print("WARNING: cookies.txt is empty", flush=True)
         return None
 
     return cookies_path
@@ -218,12 +210,10 @@ def write_cookies_file(tmp_dir):
 # ============================================================
 
 def normalize_player_clients(player_clients):
-
     if player_clients is None:
         return None
 
     if isinstance(player_clients, str):
-
         player_clients = [
             x.strip()
             for x in player_clients.split(",")
@@ -281,7 +271,6 @@ def build_ytdlp_options(
     diagnostic=False,
     use_proxy=False
 ):
-
     outtmpl = os.path.join(
         tmp_dir,
         "%(title)s.%(ext)s"
@@ -329,13 +318,11 @@ def build_ytdlp_options(
         options["no_warnings"] = True
 
     if fmt == "audio":
-
         options["format"] = (
             "bestaudio[acodec!=none]/"
             "best[acodec!=none]/"
             "best"
         )
-
         options["postprocessors"] = [
             {
                 "key": "FFmpegExtractAudio",
@@ -343,30 +330,24 @@ def build_ytdlp_options(
                 "preferredquality": "192",
             }
         ]
-
     else:
-
         options["format"] = (
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
             "bestvideo+bestaudio/"
             "best[ext=mp4]/"
             "best"
         )
-
         options["merge_output_format"] = "mp4"
 
     if use_cookies and platform == "youtube":
-
         cookies_path = write_cookies_file(
             tmp_dir
         )
-
         if cookies_path:
             options["cookiefile"] = cookies_path
             print("yt-dlp configuration: Cookies ENABLED", flush=True)
         else:
             print("yt-dlp configuration: Cookies REQUESTED but unavailable", flush=True)
-
     else:
         print("yt-dlp configuration: Cookies DISABLED", flush=True)
 
@@ -378,7 +359,6 @@ def build_ytdlp_options(
 # ============================================================
 
 def find_downloaded_file(tmp_dir, fmt):
-
     ignored = {"cookies.txt"}
     candidates = []
 
@@ -451,7 +431,6 @@ def _try_download_once(
     platform="youtube",
     use_proxy=False
 ):
-
     ydl_opts = build_ytdlp_options(
         tmp_dir=tmp_dir,
         fmt=fmt,
@@ -501,7 +480,6 @@ def download_video(
     use_cookies=True,
     use_proxy=False
 ):
-
     platform = detect_platform(url)
     attempts = []
 
@@ -607,9 +585,120 @@ def health():
 
 
 # ============================================================
-# FORMATS DIAGNOSTIC & DOWNLOAD API
+# FORMATS DIAGNOSTIC
 # ============================================================
-# (The rest of the code for /formats and /download remains the same, shortened here for focus, but the essential parts are intact)
+
+@app.route("/formats", methods=["POST"])
+def list_formats():
+    provided_key = request.headers.get("X-API-KEY", "")
+    if not API_KEY or provided_key != API_KEY:
+        return jsonify({"success": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
+    player_clients = data.get("player_client")
+    use_cookies = data.get("use_cookies", True)
+    use_proxy = data.get("use_proxy", False)
+
+    if not url:
+        return jsonify({"success": False, "error": "missing 'url'"}), 400
+
+    platform = detect_platform(url)
+    player_clients = normalize_player_clients(player_clients)
+
+    if platform == "youtube" and not player_clients:
+        player_clients = ["web_embedded"]
+
+    diagnostic = {
+        "yt_dlp_version": YTDLP_VERSION,
+        "platform": platform,
+        "player_client": player_clients,
+        "use_cookies": bool(use_cookies),
+        "use_proxy": bool(use_proxy),
+        "cookies_configured": bool(YOUTUBE_COOKIES),
+        "pot_provider": "http://127.0.0.1:4416"
+    }
+
+    print("FORMAT REQUEST:", diagnostic, flush=True)
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ydl_opts = build_ytdlp_options(
+                tmp_dir=tmp_dir,
+                fmt="video",
+                player_clients=player_clients,
+                use_cookies=use_cookies,
+                platform=platform,
+                diagnostic=True,
+                use_proxy=use_proxy
+            )
+            ydl_opts["skip_download"] = True
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False, process=False)
+
+            if not info:
+                raise RuntimeError("yt-dlp לא החזיר מידע")
+
+            formats = info.get("formats", []) or []
+            simplified = []
+
+            for f in formats:
+                simplified.append({
+                    "format_id": f.get("format_id"),
+                    "ext": f.get("ext"),
+                    "acodec": f.get("acodec"),
+                    "vcodec": f.get("vcodec"),
+                    "abr": f.get("abr"),
+                    "tbr": f.get("tbr"),
+                    "height": f.get("height"),
+                    "width": f.get("width"),
+                    "fps": f.get("fps"),
+                    "note": f.get("format_note"),
+                    "has_url": bool(f.get("url")),
+                    "protocol": f.get("protocol"),
+                    "filesize": f.get("filesize"),
+                    "filesize_approx": f.get("filesize_approx"),
+                })
+
+            real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
+            video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none"]
+            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
+            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec") and f.get("acodec") != "none"]
+
+            return jsonify({
+                "success": True,
+                "diagnostic": diagnostic,
+                "video_info": {
+                    "id": info.get("id"),
+                    "title": info.get("title"),
+                    "extractor": info.get("extractor"),
+                    "webpage_url": info.get("webpage_url"),
+                    "duration": info.get("duration"),
+                    "format_count": len(formats)
+                },
+                "count": len(simplified),
+                "real_count": len(real_formats),
+                "video_format_count": len(video_formats),
+                "audio_format_count": len(audio_formats),
+                "combined_format_count": len(combined_formats),
+                "real_formats": real_formats,
+                "all_formats": simplified
+            })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "diagnostic": diagnostic,
+            "error": repr(e),
+            "error_type": type(e).__name__
+        }), 500
+
+
+# ============================================================
+# DOWNLOAD API
+# ============================================================
 
 @app.route("/download", methods=["POST"])
 def download():
