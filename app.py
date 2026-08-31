@@ -66,15 +66,11 @@ YTDLP_VERSION = getattr(
 
 
 # ============================================================
-# DEEP SMART SCRAPER (Deep API & Response Inspection)
+# ROBUST VOD & ARTICLE SCRAPER (Anti-Live & Season/Episode Support)
 # ============================================================
 
-# ============================================================
-# DEEP SMART SCRAPER (Anti-Live & API Inspection)
-# ============================================================
-
-def extract_hidden_m3u8(url):
-    print(f"Starting Deep Virtual Browser (Anti-Live) for: {url}", flush=True)
+def extract_hidden_m3u8(url, season=None, episode=None):
+    print(f"Starting Scraper for: {url} (Season: {season}, Episode: {episode})", flush=True)
     found_stream = None
 
     try:
@@ -90,14 +86,13 @@ def extract_hidden_m3u8(url):
                 try:
                     res_url = response.url.lower()
                     
-                    # סינון קריטי: מתעלמים לחלוטין מפרסומות, מעקב ומהשידור החי (Live) של הערוץ!
-                    if any(bad in res_url for bad in ["live", "ch14/live", "ad", "banner", "track"]):
+                    if any(bad in res_url for bad in ["adsystem", "doubleclick", "track", "banner"]):
                         return
 
-                    if ".m3u8" in res_url or "immergo" in res_url:
-                        if not found_stream or "master" in res_url or "vod" in res_url:
+                    if ".m3u8" in res_url or "immergo" in res_url or "keshet-vod" in res_url or "mako" in res_url:
+                        if "playlist.m3u8" in res_url or "master" in res_url or "vod" in res_url or "ch14" in res_url:
                             found_stream = response.url
-                            print(f"Caught clean article stream in URL: {response.url}", flush=True)
+                            print(f"Caught target stream in URL: {response.url}", flush=True)
                             return
 
                     if any(t in response.headers.get("content-type", "").lower() for t in ["json", "text", "javascript"]):
@@ -105,10 +100,9 @@ def extract_hidden_m3u8(url):
                         matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
                         for m in matches:
                             m_clean = m.replace('\\/', '/')
-                            m_lower = m_clean.lower()
-                            if not any(bad in m_lower for bad in ["live", "ch14/live", "ad", "banner"]):
+                            if "ad" not in m_clean.lower():
                                 found_stream = m_clean
-                                print(f"Caught clean article stream in API body: {m_clean}", flush=True)
+                                print(f"Caught target stream in API body: {m_clean}", flush=True)
                                 return
                 except:
                     pass
@@ -118,25 +112,33 @@ def extract_hidden_m3u8(url):
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 
-                # גלילה עמוקה יותר לתוך הכתבה עצמה כדי להתרחק מהשידור החי הצף
-                page.mouse.wheel(0, 600)
+                page.mouse.wheel(0, 500)
                 page.wait_for_timeout(3000)
 
-                # לחיצה ממוקדת על נגן הכתבה
-                for selector in [".article-video video", ".immergo-player", "div[class*='video'] video", "iframe"]:
+                if episode:
                     try:
-                        element = page.locator(selector).first
-                        if element.is_visible():
-                            element.click(timeout=2000)
-                            print(f"Clicked article player via: {selector}", flush=True)
-                            break
-                    except:
-                        continue
+                        print(f"Searching for Season {season or 1}, Episode {episode}...", flush=True)
+                        ep_locator = page.locator(f"text=פרק {episode}").first
+                        if ep_locator.is_visible():
+                            ep_locator.click(timeout=3000)
+                            print(f"Clicked Episode {episode} successfully!", flush=True)
+                            page.wait_for_timeout(3000)
+                    except Exception as ex:
+                        print(f"Episode click fallback note: {ex}", flush=True)
+                else:
+                    for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']"]:
+                        try:
+                            el = page.locator(selector).first
+                            if el.is_visible():
+                                el.click(timeout=2000)
+                                break
+                        except:
+                            continue
 
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            print("Waiting for article video stream to initialize...", flush=True)
+            print("Waiting for stream initialization...", flush=True)
             for _ in range(15):
                 if found_stream:
                     break
@@ -146,10 +148,9 @@ def extract_hidden_m3u8(url):
                     content = page.content().replace('\\/', '/')
                     html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
                     for hm in html_matches:
-                        hm_lower = hm.lower()
-                        if not any(bad in hm_lower for bad in ["live", "ch14/live", "ad"]):
+                        if "ad" not in hm.lower():
                             found_stream = hm
-                            print(f"Caught clean stream in HTML: {hm}", flush=True)
+                            print(f"Caught stream in HTML: {hm}", flush=True)
                             break
                 except:
                     pass
@@ -161,11 +162,11 @@ def extract_hidden_m3u8(url):
         if found_stream:
             return found_stream
         else:
-            raise RuntimeError("הדפדפן סרק את הכתבה אך מצא רק שידור חי או שלא מצא סרטון.")
+            raise RuntimeError("הדפדפן סרק את העמוד אך לא הצליח לאתר את קישור הסטרימינג.")
 
     except Exception as e:
-        print(f"Deep virtual browser error: {e}", flush=True)
-        raise RuntimeError(f"שגיאה בסריקה העמוקה: {str(e)}")
+        print(f"Scraper error: {e}", flush=True)
+        raise RuntimeError(f"שגיאה בסריקה: {str(e)}")
 
 
 # ============================================================
@@ -703,6 +704,8 @@ def list_formats():
     player_clients = data.get("player_client")
     use_cookies = data.get("use_cookies", True)
     use_proxy = data.get("use_proxy", False)
+    season = data.get("season")
+    episode = data.get("episode")
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
@@ -710,7 +713,7 @@ def list_formats():
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
     if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
-            url = extract_hidden_m3u8(url)
+            url = extract_hidden_m3u8(url, season=season, episode=episode)
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 400
 
@@ -823,6 +826,8 @@ def download():
     player_clients = data.get("player_client")
     use_cookies = data.get("use_cookies", True)
     use_proxy = data.get("use_proxy", False)
+    season = data.get("season")
+    episode = data.get("episode")
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
@@ -836,7 +841,7 @@ def download():
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
     if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
-            url = extract_hidden_m3u8(url)
+            url = extract_hidden_m3u8(url, season=season, episode=episode)
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 400
 
