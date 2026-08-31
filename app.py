@@ -12,6 +12,9 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+# ייבוא הדפדפן הוירטואלי
+from playwright.sync_api import sync_playwright
+
 
 app = Flask(__name__)
 
@@ -46,60 +49,50 @@ YTDLP_VERSION = getattr(yt_dlp.version, "__version__", "unknown")
 
 
 # ============================================================
-# SCRAPE M3U8 FROM ISRAELI NEWS SITES
+# SMART SCRAPE USING HEADLESS BROWSER
 # ============================================================
 
 def extract_hidden_m3u8(url):
-    try:
-        print(f"Scraping webpage for hidden m3u8: {url}", flush=True)
-        req = urllib.request.Request(
-            url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'}
-        )
-        with urllib.request.urlopen(req, timeout=15) as response:
-            html = response.read().decode('utf-8')
-        
-        # ניקוי לוכסנים הפוכים לפני החיפוש כדי לתפוס קישורים בתוך JSON
-        html_clean = html.replace('\\/', '/')
-        
-        # חיפוש קישורי m3u8 ישירים בדף
-        matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', html_clean)
-        
-        if matches:
-            master_links = [m for m in matches if 'master.m3u8' in m.lower()]
-            best_link = master_links[0] if master_links else matches[0]
-            print(f"Found direct m3u8 link: {best_link}", flush=True)
-            return best_link
-            
-        # חיפוש נגן פנימי (iframe) במידה ואין קישור ישיר
-        iframe_matches = re.findall(r'<iframe[^>]+src=["\'](https?://[^"\'<>\s]+)["\']', html_clean)
-        for iframe_url in iframe_matches:
-            print(f"Found iframe: {iframe_url}, checking inside...", flush=True)
-            
-            req2 = urllib.request.Request(
-                iframe_url, 
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
-                    'Referer': url
-                }
-            )
-            with urllib.request.urlopen(req2, timeout=10) as res2:
-                html2 = res2.read().decode('utf-8')
-            
-            html2_clean = html2.replace('\\/', '/')
-            matches2 = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', html2_clean)
-            
-            if matches2:
-                master_links2 = [m for m in matches2 if 'master.m3u8' in m.lower()]
-                best_link2 = master_links2[0] if master_links2 else matches2[0]
-                print(f"Found m3u8 link in iframe: {best_link2}", flush=True)
-                return best_link2
+    print(f"Starting Virtual Browser for: {url}", flush=True)
+    found_m3u8 = None
 
-        raise RuntimeError("לא נמצא קישור וידאו נסתר (m3u8) בתוך הכתבה. האתר כנראה חוסם סריקה או טוען את הווידאו מאוחר.")
+    try:
+        with sync_playwright() as p:
+            # הפעלת דפדפן כרום מותאם לשרת לינוקס
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+            page = browser.new_page()
+
+            # פונקציה שמאזינה לכל קובץ שהאתר מנסה לטעון ברקע
+            def log_request(request):
+                nonlocal found_m3u8
+                if ".m3u8" in request.url:
+                    # אנחנו תמיד מחפשים את קובץ המאסטר הראשי
+                    if not found_m3u8 or "master" in request.url.lower():
+                        found_m3u8 = request.url
+
+            page.on("request", log_request)
+
+            try:
+                # טוענים את האתר ומחכים שהרשת תירגע (כל הסקריפטים סיימו)
+                page.goto(url, wait_until="networkidle", timeout=20000)
+            except Exception as e:
+                print(f"Page load note (usually fine): {e}", flush=True)
+
+            # אם הנגן איטי, ניתן לו עוד 5 שניות לרוץ
+            if not found_m3u8:
+                page.wait_for_timeout(5000)
+
+            browser.close()
+
+        if found_m3u8:
+            print(f"Virtual Browser caught m3u8: {found_m3u8}", flush=True)
+            return found_m3u8
+        else:
+            raise RuntimeError("לא נמצא קישור וידאו. ייתכן ואין סרטון בכתבה או שהאתר שינה את המבנה שלו.")
 
     except Exception as e:
-        print(f"Error scraping webpage: {e}", flush=True)
-        raise RuntimeError(f"שגיאה בסריקת האתר האוטומטית: {str(e)}. במקרה כזה חובה להוציא קישור ישיר דרך F12.")
+        print(f"Virtual browser error: {e}", flush=True)
+        raise RuntimeError(f"שגיאה בהפעלת הדפדפן הוירטואלי: {str(e)}")
 
 
 # ============================================================
@@ -107,22 +100,18 @@ def extract_hidden_m3u8(url):
 # ============================================================
 
 def detect_platform(url):
-    if not url:
-        return "other"
-    
+    if not url: return "other"
     u = url.lower()
     if "youtube.com" in u or "youtu.be" in u: return "youtube"
     if "instagram.com" in u: return "instagram"
     if "tiktok.com" in u: return "tiktok"
-        
     if any(domain in u for domain in ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il", "immergo.tv", ".m3u8"]):
         return "news_il"
-
     return "other"
 
 
 # ============================================================
-# VIDEO URL VALIDATION (multi-platform + Israeli News + m3u8)
+# VIDEO URL VALIDATION
 # ============================================================
 
 VIDEO_URL_PATTERNS = [
@@ -132,7 +121,6 @@ VIDEO_URL_PATTERNS = [
     re.compile(r"(https?://)?([a-zA-Z0-9-]+\.)?(mako\.co\.il|n12\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|c14\.co\.il|ynet\.co\.il|immergo\.tv)/.+", re.IGNORECASE),
     re.compile(r".*\.m3u8.*", re.IGNORECASE)
 ]
-
 
 def is_valid_video_url(url):
     if not url: return False
@@ -146,11 +134,9 @@ def is_valid_video_url(url):
 
 def get_drive_service():
     creds = Credentials(
-        token=None,
-        refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
+        token=None, refresh_token=GOOGLE_OAUTH_REFRESH_TOKEN,
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=GOOGLE_OAUTH_CLIENT_ID,
-        client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
+        client_id=GOOGLE_OAUTH_CLIENT_ID, client_secret=GOOGLE_OAUTH_CLIENT_SECRET,
         scopes=DRIVE_SCOPES,
     )
     creds.refresh(GoogleAuthRequest())
@@ -158,17 +144,14 @@ def get_drive_service():
 
 def upload_to_drive(local_path, filename):
     service = get_drive_service()
-    file_metadata = {
-        "name": filename,
-        "parents": ([DRIVE_FOLDER_ID] if DRIVE_FOLDER_ID else [])
-    }
+    file_metadata = {"name": filename, "parents": ([DRIVE_FOLDER_ID] if DRIVE_FOLDER_ID else [])}
     media = MediaFileUpload(local_path, resumable=True)
     uploaded = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
     return (uploaded.get("webViewLink"), uploaded.get("id"))
 
 
 # ============================================================
-# COOKIES
+# COOKIES & CLIENTS
 # ============================================================
 
 def write_cookies_file(tmp_dir):
@@ -178,11 +161,6 @@ def write_cookies_file(tmp_dir):
         f.write(YOUTUBE_COOKIES)
     return cookies_path
 
-
-# ============================================================
-# NORMALIZE CLIENTS
-# ============================================================
-
 def normalize_player_clients(player_clients):
     if player_clients is None: return None
     if isinstance(player_clients, str):
@@ -190,11 +168,6 @@ def normalize_player_clients(player_clients):
     if not isinstance(player_clients, list): return None
     result = [str(x).strip() for x in player_clients if str(x).strip()]
     return result or None
-
-
-# ============================================================
-# DEFAULT CLIENT STRATEGY
-# ============================================================
 
 DEFAULT_CLIENT_ATTEMPTS = [
     (["android"], True), (["ios"], True), (["web_embedded"], True),
@@ -254,7 +227,7 @@ def build_ytdlp_options(tmp_dir, fmt, player_clients, use_cookies, platform="you
 
 
 # ============================================================
-# FIND FINAL FILE
+# FIND FINAL FILE & DOWNLOAD ENGINE
 # ============================================================
 
 def find_downloaded_file(tmp_dir, fmt):
@@ -287,11 +260,6 @@ def find_downloaded_file(tmp_dir, fmt):
     candidates.sort(key=lambda item: item[1], reverse=True)
     return candidates[0][0]
 
-
-# ============================================================
-# ONE DOWNLOAD ATTEMPT
-# ============================================================
-
 def _try_download_once(url, fmt, tmp_dir, player_clients, use_cookies, platform="youtube", use_proxy=False):
     ydl_opts = build_ytdlp_options(tmp_dir, fmt, player_clients, use_cookies, platform, False, use_proxy)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -301,11 +269,6 @@ def _try_download_once(url, fmt, tmp_dir, player_clients, use_cookies, platform=
     final_path = find_downloaded_file(tmp_dir, fmt)
     if not final_path: raise RuntimeError("ההורדה הסתיימה אך הקובץ הסופי לא נמצא")
     return (final_path, title)
-
-
-# ============================================================
-# DOWNLOAD ENGINE (multi-platform)
-# ============================================================
 
 def download_video(url, fmt, tmp_dir, player_clients=None, use_cookies=True, use_proxy=False):
     platform = detect_platform(url)
@@ -342,17 +305,13 @@ def download_video(url, fmt, tmp_dir, player_clients=None, use_cookies=True, use
 
 
 # ============================================================
-# HEALTH CHECK
+# API ENDPOINTS
 # ============================================================
 
 @app.route("/", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "yt_dlp_version": YTDLP_VERSION})
 
-
-# ============================================================
-# FORMATS DIAGNOSTIC
-# ============================================================
 
 @app.route("/formats", methods=["POST"])
 def list_formats():
@@ -385,10 +344,6 @@ def list_formats():
         return jsonify({"success": False, "error": repr(e)}), 500
 
 
-# ============================================================
-# DOWNLOAD API
-# ============================================================
-
 @app.route("/download", methods=["POST"])
 def download():
     provided_key = request.headers.get("X-API-KEY", "")
@@ -401,13 +356,11 @@ def download():
     if not url: return jsonify({"success": False, "error": "missing 'url'"}), 400
     if not is_valid_video_url(url): return jsonify({"success": False, "error": "קישור לא נתמך"}), 400
 
-    # אוטומציה: סורק את דף האינטרנט לכל אתרי החדשות הישראלים הנתמכים
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
     if any(domain in url.lower() for domain in il_news_domains):
         try:
             url = extract_hidden_m3u8(url)
         except Exception as e:
-            # אם החילוץ נכשל, נחזיר שגיאה מסודרת לסקריפט של גוגל
             return jsonify({"success": False, "error": str(e)}), 400
 
     platform = detect_platform(url)
@@ -415,9 +368,7 @@ def download():
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             local_path, title = download_video(
-                url=url,
-                fmt=fmt,
-                tmp_dir=tmp_dir,
+                url=url, fmt=fmt, tmp_dir=tmp_dir,
                 player_clients=data.get("player_client"),
                 use_cookies=data.get("use_cookies", True),
                 use_proxy=data.get("use_proxy", False)
