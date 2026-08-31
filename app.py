@@ -3,6 +3,7 @@ import re
 import tempfile
 import traceback
 import urllib.request
+import json
 
 from flask import Flask, request, jsonify
 import yt_dlp
@@ -65,12 +66,12 @@ YTDLP_VERSION = getattr(
 
 
 # ============================================================
-# SMART SCRAPE USING HEADLESS BROWSER (Playwright)
+# DEEP SMART SCRAPER (Deep API & Response Inspection)
 # ============================================================
 
 def extract_hidden_m3u8(url):
-    print(f"Starting Smart Ad-Aware Browser for: {url}", flush=True)
-    all_m3u8_links = []
+    print(f"Starting Deep Virtual Browser for: {url}", flush=True)
+    found_stream = None
 
     try:
         with sync_playwright() as p:
@@ -80,26 +81,38 @@ def extract_hidden_m3u8(url):
             )
             page = browser.new_page(viewport={'width': 1280, 'height': 800})
 
-            def log_request(request):
-                nonlocal all_m3u8_links
-                if ".m3u8" in request.url:
-                    url_lower = request.url.lower()
-                    if "ad" in url_lower or "pre-roll" in url_lower or "track" in url_lower:
-                        return
-                    if request.url not in all_m3u8_links:
-                        all_m3u8_links.append(request.url)
-                        print(f"Captured stream link: {request.url}", flush=True)
+            def inspect_response(response):
+                nonlocal found_stream
+                try:
+                    res_url = response.url.lower()
+                    if ".m3u8" in res_url or "immergo" in res_url:
+                        if "ad" not in res_url and "track" not in res_url:
+                            if not found_stream or "master" in res_url:
+                                found_stream = response.url
+                                print(f"Caught stream in URL: {response.url}", flush=True)
+                                return
 
-            page.on("request", log_request)
+                    if any(t in response.headers.get("content-type", "").lower() for t in ["json", "text", "javascript"]):
+                        body = response.text()
+                        matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', body)
+                        for m in matches:
+                            m_clean = m.replace('\\/', '/')
+                            if "ad" not in m_clean.lower():
+                                found_stream = m_clean
+                                print(f"Caught stream inside API response body: {m_clean}", flush=True)
+                                return
+                except:
+                    pass
+
+            page.on("response", inspect_response)
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 
-                page.mouse.wheel(0, 350)
-                page.wait_for_timeout(2000)
+                page.mouse.wheel(0, 400)
+                page.wait_for_timeout(3000)
 
-                # לחיצה על הנגן להפעלה ראשונית
-                for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']"]:
+                for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']", "iframe"]:
                     try:
                         element = page.locator(selector).first
                         if element.is_visible():
@@ -111,33 +124,35 @@ def extract_hidden_m3u8(url):
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            print("Waiting dynamically for ads to finish and main video to load...", flush=True)
-            
-            # לולאה שבודקת כל 2 שניות במשך עד דקה שלמה האם יש כפתור דילוג, 
-            # ומאפשרת לפרסומות ארוכות לרוץ עד שהסרטון האמיתי יעלה
-            for _ in range(30):
+            print("Waiting for player API and streams to initialize...", flush=True)
+            for _ in range(15):
+                if found_stream:
+                    break
                 page.wait_for_timeout(2000)
+                
                 try:
-                    skip_btn = page.locator(".skip-button, .ad-skip, button:has-text('דלג'), .video-ads__skip-button").first
-                    if skip_btn.is_visible():
-                        skip_btn.click(timeout=500)
-                        print("Clicked Skip Ad button successfully!", flush=True)
+                    content = page.content().replace('\\/', '/')
+                    html_matches = re.findall(r'https?://[^"\'<>\s]+\.m3u8[^"\'<>\s]*', content)
+                    for hm in html_matches:
+                        if "ad" not in hm.lower():
+                            found_stream = hm
+                            print(f"Caught stream in page HTML: {hm}", flush=True)
+                            break
                 except:
                     pass
+                if found_stream:
+                    break
 
             browser.close()
 
-        if all_m3u8_links:
-            master_links = [l for l in all_m3u8_links if "master" in l.lower()]
-            best_link = master_links[-1] if master_links else all_m3u8_links[-1]
-            print(f"Selected final main video link: {best_link}", flush=True)
-            return best_link
+        if found_stream:
+            return found_stream
         else:
-            raise RuntimeError("לא נמצא קישור וידאו לאחר מעבר על הפרסומות.")
+            raise RuntimeError("הדפדפן סרק את ה-API והעמוד אך לא מצא קישור סטרימינג פעיל.")
 
     except Exception as e:
-        print(f"Virtual browser error: {e}", flush=True)
-        raise RuntimeError(f"שגיאה בהפעלת הדפדפן הוירטואלי: {str(e)}")
+        print(f"Deep virtual browser error: {e}", flush=True)
+        raise RuntimeError(f"שגיאה בסריקה העמוקה: {str(e)}")
 
 
 # ============================================================
@@ -680,7 +695,7 @@ def list_formats():
         return jsonify({"success": False, "error": "missing 'url'"}), 400
 
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
-    if any(domain in url.lower() for domain in il_news_domains):
+    if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
             url = extract_hidden_m3u8(url)
         except Exception as e:
@@ -806,7 +821,7 @@ def download():
         return jsonify({"success": False, "error": "format must be 'audio', 'video' or 'auto'"}), 400
 
     il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
-    if any(domain in url.lower() for domain in il_news_domains):
+    if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
         try:
             url = extract_hidden_m3u8(url)
         except Exception as e:
