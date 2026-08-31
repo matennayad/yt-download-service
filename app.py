@@ -847,7 +847,7 @@ def list_formats():
 
             real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
             video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none"]
-            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
+            audio_formats = [f for f in real_formats if f.get("acodec"] if False else [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
             combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec") and f.get("acodec") != "none"]
 
             return jsonify({
@@ -891,13 +891,18 @@ def download():
         return jsonify({"success": False, "error": "unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
-    url = data.get("url")
+    raw_input = data.get("url", "").strip()
+    
+    # פיצול חכם של הקלט כך שיתמוך בכתובת, עונה ופרק בשדה אחד (לדוגמה: URL 1 12)
+    parts = raw_input.split()
+    url = parts[0] if parts else ""
+    season = parts[1] if len(parts) > 1 else data.get("season")
+    episode = parts[2] if len(parts) > 2 else data.get("episode")
+
     fmt = data.get("format", "audio")
     player_clients = data.get("player_client")
     use_cookies = data.get("use_cookies", True)
     use_proxy = data.get("use_proxy", False)
-    season = data.get("season")
-    episode = data.get("episode")
 
     if not url:
         return jsonify({"success": False, "error": "missing 'url'"}), 400
@@ -923,6 +928,8 @@ def download():
         {
             "platform": platform,
             "format": fmt,
+            "season": season,
+            "episode": episode,
             "player_client": player_clients,
             "use_cookies": bool(use_cookies),
             "cookies_configured": bool(YOUTUBE_COOKIES),
