@@ -428,8 +428,18 @@ def build_ytdlp_options(
             "Referer": "https://www.mako.co.il/",
             "Origin": "https://www.mako.co.il"
         }
+        
+        # אם יש עוגיות שחילקנו מהדפדפן, נכתוב אותן לקובץ זמני ונשתמש בו כ-cookiefile כדי לעקוף את חסימת ה-403
         if cookies_str:
-            options["http_headers"]["Cookie"] = cookies_str
+            dyn_cookie_path = os.path.join(tmp_dir, "dyn_cookies.txt")
+            with open(dyn_cookie_path, "w", encoding="utf-8") as cf:
+                cf.write("# Netscape HTTP Cookie File\n")
+                for c_item in cookies_str.split("; "):
+                    if "=" in c_item:
+                        c_name, c_val = c_item.split("=", 1)
+                        # פורמט Netscape בסיסי עבור yt-dlp
+                        cf.write(f".mako.co.il\tTRUE\t/\tTRUE\t0\t{c_name.strip()}\t{c_val.strip()}\n")
+            options["cookiefile"] = dyn_cookie_path
 
     if use_proxy:
         options["proxy"] = TOR_PROXY_URL
@@ -463,20 +473,7 @@ def build_ytdlp_options(
         )
         options["merge_output_format"] = "mp4"
 
-    if use_cookies and platform == "youtube":
-        cookies_path = write_cookies_file(
-            tmp_dir
-        )
-        if cookies_path:
-            options["cookiefile"] = cookies_path
-            print("yt-dlp configuration: Cookies ENABLED", flush=True)
-        else:
-            print("yt-dlp configuration: Cookies REQUESTED but unavailable", flush=True)
-    else:
-        print("yt-dlp configuration: Cookies DISABLED", flush=True)
-
     return options
-
 
 # ============================================================
 # FIND FINAL FILE
