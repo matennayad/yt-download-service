@@ -78,13 +78,12 @@ def extract_hidden_m3u8(url):
                 headless=True,
                 args=['--no-sandbox', '--disable-setuid-sandbox']
             )
-            page = browser.new_page(viewport={'width': 1280, height: 800})
+            page = browser.new_page(viewport={'width': 1280, 'height': 800})
 
             def log_request(request):
                 nonlocal all_m3u8_links
                 if ".m3u8" in request.url:
                     url_lower = request.url.lower()
-                    # סינון קישורי פרסומות ברורים
                     if "ad" in url_lower or "pre-roll" in url_lower or "track" in url_lower:
                         return
                     if request.url not in all_m3u8_links:
@@ -94,13 +93,12 @@ def extract_hidden_m3u8(url):
             page.on("request", log_request)
 
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 
-                # גלילה לאזור הנגן
                 page.mouse.wheel(0, 350)
                 page.wait_for_timeout(2000)
 
-                # לחיצה על הנגן כדי להעיר אותו
+                # לחיצה על הנגן להפעלה ראשונית
                 for selector in ["video", ".immergo-player", ".video-player", "[aria-label*='הפעל']"]:
                     try:
                         element = page.locator(selector).first
@@ -113,25 +111,23 @@ def extract_hidden_m3u8(url):
             except Exception as e:
                 print(f"Navigation note: {e}", flush=True)
 
-            # נותנים זמן ארוך יותר (10 שניות) כדי שהפרסומות יעברו 
-            # והסרטון האמיתי של הכתבה יתחיל לנגן מאחורי הקלעים
-            print("Waiting for ads to finish and main video to load...", flush=True)
-            page.wait_for_timeout(10000)
-
-            # בדיקה אם הופיע כפתור "דלג על פרסומת" ולחיצה עליו
-            try:
-                skip_btn = page.locator(".skip-button, .ad-skip, button:has-text('דלג')").first
-                if skip_btn.is_visible():
-                    skip_btn.click(timeout=1000)
-                    print("Clicked Skip Ad button!", flush=True)
-                    page.wait_for_timeout(4000)
-            except:
-                pass
+            print("Waiting dynamically for ads to finish and main video to load...", flush=True)
+            
+            # לולאה שבודקת כל 2 שניות במשך עד דקה שלמה האם יש כפתור דילוג, 
+            # ומאפשרת לפרסומות ארוכות לרוץ עד שהסרטון האמיתי יעלה
+            for _ in range(30):
+                page.wait_for_timeout(2000)
+                try:
+                    skip_btn = page.locator(".skip-button, .ad-skip, button:has-text('דלג'), .video-ads__skip-button").first
+                    if skip_btn.is_visible():
+                        skip_btn.click(timeout=500)
+                        print("Clicked Skip Ad button successfully!", flush=True)
+                except:
+                    pass
 
             browser.close()
 
         if all_m3u8_links:
-            # בדרך כלל הקישור האמיתי והסופי של הכתבה הוא האחרון ברשימה אחרי שהפרסומות נגמרו
             master_links = [l for l in all_m3u8_links if "master" in l.lower()]
             best_link = master_links[-1] if master_links else all_m3u8_links[-1]
             print(f"Selected final main video link: {best_link}", flush=True)
