@@ -64,9 +64,6 @@ YTDLP_VERSION = getattr(
 # ============================================================
 # PLATFORM DETECTION
 # ============================================================
-# מזהה מאיזו פלטפורמה מגיע הקישור, כדי להתאים את אסטרטגיית ההורדה.
-# כרגע נתמכים: youtube, instagram, tiktok. כל השאר -> "other"
-# (yt-dlp עדיין ינסה לחלץ מידע גם מ"other", פשוט בלי אופטימיזציות ייעודיות)
 
 def detect_platform(url):
 
@@ -83,12 +80,15 @@ def detect_platform(url):
 
     if "tiktok.com" in u:
         return "tiktok"
+        
+    if any(domain in u for domain in ["mako.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "ynet.co.il"]):
+        return "news_il"
 
     return "other"
 
 
 # ============================================================
-# VIDEO URL VALIDATION (multi-platform)
+# VIDEO URL VALIDATION (multi-platform + Israeli News)
 # ============================================================
 
 VIDEO_URL_PATTERNS = [
@@ -108,6 +108,12 @@ VIDEO_URL_PATTERNS = [
         r"(https?://)?(www\.|vm\.|vt\.)?"
         r"tiktok\.com/"
         r"(@[\w.\-]+/video/\d+|[\w]+)[^\s]*",
+        re.IGNORECASE
+    ),
+    re.compile(
+        r"(https?://)?(www\.)?"
+        r"(mako\.co\.il|13tv\.co\.il|kan\.org\.il|now14\.co\.il|ynet\.co\.il)/"
+        r".+",
         re.IGNORECASE
     ),
 ]
@@ -148,7 +154,7 @@ def get_drive_service():
     return build(
         "drive",
         "v3",
-        credentials=creds
+        "credentials"=creds
     )
 
 
@@ -257,11 +263,8 @@ def normalize_player_clients(player_clients):
 
 
 # ============================================================
-# DEFAULT CLIENT STRATEGY (YouTube בלבד)
+# DEFAULT CLIENT STRATEGY
 # ============================================================
-# הרשימה הזו רלוונטית רק ליוטיוב - "player_client" הוא מונח ספציפי
-# למנגנון ה-extractor של יוטיוב ב-yt-dlp. לפלטפורמות אחרות (אינסטגרם,
-# טיקטוק) אין משמעות לרשימה הזו ולכן לא נעשה בה שימוש עבורן.
 
 DEFAULT_CLIENT_ATTEMPTS = [
 
@@ -312,7 +315,6 @@ def build_ytdlp_options(
         }
     }
 
-    # player_client רלוונטי רק לחילוץ מיוטיוב
     if platform == "youtube" and player_clients:
         extractor_args["youtube"] = {
             "player_client": player_clients
@@ -365,8 +367,6 @@ def build_ytdlp_options(
 
         options["merge_output_format"] = "mp4"
 
-    # עוגיות - כרגע נתמך רק עבור יוטיוב (YOUTUBE_COOKIES).
-    # אינסטגרם/טיקטוק פועלים כרגע במצב תוכן ציבורי בלבד, ללא עוגיות.
     if use_cookies and platform == "youtube":
 
         cookies_path = write_cookies_file(
@@ -613,8 +613,6 @@ def download_video(
 
     if platform == "youtube":
 
-        # ליוטיוב - שימור האסטרטגיה הקיימת: ניסיון עם ה-client
-        # שהתבקש (אם הוגדר), ואז שורת גיבוי ארוכה של קליינטים שונים.
         requested_clients = normalize_player_clients(
             player_clients
         )
@@ -651,8 +649,6 @@ def download_video(
 
     else:
 
-        # אינסטגרם / טיקטוק / אחר - אין מושג "player_client",
-        # אז מספיק ניסיון ישיר אחד (ועם/בלי עוגיות אם התבקש).
         attempts.append((None, bool(use_cookies)))
 
         if use_cookies:
@@ -793,7 +789,8 @@ def health():
         "supported_platforms": [
             "youtube",
             "instagram",
-            "tiktok"
+            "tiktok",
+            "news_il"
         ]
 
     })
@@ -857,7 +854,6 @@ def list_formats():
         player_clients
     )
 
-    # ברירת המחדל של player_client רלוונטית רק ליוטיוב
     if platform == "youtube" and not player_clients:
 
         player_clients = [
@@ -1185,7 +1181,7 @@ def download():
 
             "error":
                 "קישור לא נתמך - יש לשלוח קישור תקין "
-                "מיוטיוב, אינסטגרם או טיקטוק"
+                "מיוטיוב, אינסטגרם, טיקטוק או אתרי חדשות"
 
         }), 400
 
