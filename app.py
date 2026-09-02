@@ -26,7 +26,6 @@ app = Flask(__name__)
 
 API_KEY = os.environ.get("API_KEY", "")
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-YOUTUBE_COOKIES = os.environ.get("YOUTUBE_COOKIES", "")
 
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get(
     "GOOGLE_OAUTH_CLIENT_ID",
@@ -293,50 +292,6 @@ def upload_to_drive(local_path, filename):
 
 
 # ============================================================
-# COOKIES
-# ============================================================
-
-def write_cookies_file(tmp_dir):
-    if not YOUTUBE_COOKIES:
-        print("YOUTUBE_COOKIES: NOT CONFIGURED", flush=True)
-        return None
-
-    cookies_path = os.path.join(
-        tmp_dir,
-        "cookies.txt"
-    )
-
-    cleaned_cookies = YOUTUBE_COOKIES.strip()
-    if not cleaned_cookies.startswith("# Netscape HTTP Cookie File"):
-        cleaned_cookies = "# Netscape HTTP Cookie File\n" + cleaned_cookies
-
-    with open(
-        cookies_path,
-        "w",
-        encoding="utf-8"
-    ) as f:
-        f.write(cleaned_cookies)
-
-    try:
-        size = os.path.getsize(
-            cookies_path
-        )
-    except OSError:
-        size = 0
-
-    print(
-        "YOUTUBE_COOKIES: configured, "
-        f"cookies.txt created ({size} bytes)", flush=True
-    )
-
-    if size == 0:
-        print("WARNING: cookies.txt is empty", flush=True)
-        return None
-
-    return cookies_path
-
-
-# ============================================================
 # NORMALIZE CLIENTS
 # ============================================================
 
@@ -364,19 +319,10 @@ def normalize_player_clients(player_clients):
 
 
 # ============================================================
-# DEFAULT CLIENT STRATEGY
+# DEFAULT CLIENT STRATEGY (Cookies Disabled)
 # ============================================================
 
 DEFAULT_CLIENT_ATTEMPTS = [
-    (["android"], True),
-    (["ios"], True),
-    (["web_embedded"], True),
-    (["tv_simply"], True),
-    (["tv"], True),
-    (["android_vr"], True),
-    (["web_safari"], True),
-    (["mweb"], True),
-    (["web"], True),
     (["android"], False),
     (["ios"], False),
     (["web_embedded"], False),
@@ -397,7 +343,6 @@ def build_ytdlp_options(
     tmp_dir,
     fmt,
     player_clients,
-    use_cookies,
     platform="youtube",
     diagnostic=False,
     use_proxy=False,
@@ -477,17 +422,7 @@ def build_ytdlp_options(
         )
         options["merge_output_format"] = "mp4"
 
-    if use_cookies and platform == "youtube":
-        cookies_path = write_cookies_file(
-            tmp_dir
-        )
-        if cookies_path:
-            options["cookiefile"] = cookies_path
-            print("yt-dlp configuration: Cookies ENABLED", flush=True)
-        else:
-            print("yt-dlp configuration: Cookies REQUESTED but unavailable", flush=True)
-    else:
-        print("yt-dlp configuration: Cookies DISABLED", flush=True)
+    print("yt-dlp configuration: Cookies DISABLED (Strictly No Cookies)", flush=True)
 
     return options
 
@@ -591,7 +526,6 @@ def _try_download_once(
     fmt,
     tmp_dir,
     player_clients,
-    use_cookies,
     platform="youtube",
     use_proxy=False,
     cookies_str=""
@@ -610,7 +544,6 @@ def _try_download_once(
         tmp_dir=tmp_dir,
         fmt=fmt,
         player_clients=player_clients,
-        use_cookies=use_cookies,
         platform=platform,
         diagnostic=False,
         use_proxy=use_proxy,
@@ -623,8 +556,7 @@ def _try_download_once(
             "platform": platform,
             "format": fmt,
             "clients": player_clients,
-            "cookies": use_cookies,
-            "cookies_configured": bool(YOUTUBE_COOKIES),
+            "cookies": False,
             "yt_dlp_version": YTDLP_VERSION
         }, flush=True
     )
@@ -645,7 +577,7 @@ def _try_download_once(
 
 
 # ============================================================
-# DOWNLOAD ENGINE (multi-platform)
+# DOWNLOAD ENGINE (multi-platform, No Cookies)
 # ============================================================
 
 def download_video(
@@ -653,7 +585,6 @@ def download_video(
     fmt,
     tmp_dir,
     player_clients=None,
-    use_cookies=True,
     use_proxy=False,
     cookies_str=""
 ):
@@ -663,20 +594,13 @@ def download_video(
     if platform == "youtube":
         requested_clients = normalize_player_clients(player_clients)
         if requested_clients:
-            requested_attempt = (requested_clients, bool(use_cookies))
-            attempts.append(requested_attempt)
-            if use_cookies:
-                no_cookie_attempt = (requested_clients, False)
-                if no_cookie_attempt not in attempts:
-                    attempts.append(no_cookie_attempt)
+            attempts.append((requested_clients, False))
 
         for combo in DEFAULT_CLIENT_ATTEMPTS:
             if combo not in attempts:
                 attempts.append(combo)
     else:
-        attempts.append((None, bool(use_cookies)))
-        if use_cookies:
-            attempts.append((None, False))
+        attempts.append((None, False))
 
     if fmt == "auto":
         formats_to_try = ["video", "audio"]
@@ -686,9 +610,9 @@ def download_video(
     last_error = None
 
     for target_fmt in formats_to_try:
-        for clients, cookies_flag in attempts:
+        for clients, _ in attempts:
             safe_clients = "_".join(clients) if clients else "default"
-            sub_dir = os.path.join(tmp_dir, f"try_{target_fmt}_{safe_clients}_{int(cookies_flag)}")
+            sub_dir = os.path.join(tmp_dir, f"try_{target_fmt}_{safe_clients}_0")
             os.makedirs(sub_dir, exist_ok=True)
 
             print("--------------------------------------------------", flush=True)
@@ -698,8 +622,7 @@ def download_video(
                     "platform": platform,
                     "format": target_fmt,
                     "clients": clients,
-                    "cookies": cookies_flag,
-                    "cookies_configured": bool(YOUTUBE_COOKIES),
+                    "cookies": False,
                     "proxy": use_proxy
                 }, flush=True
             )
@@ -710,7 +633,6 @@ def download_video(
                     fmt=target_fmt,
                     tmp_dir=sub_dir,
                     player_clients=clients,
-                    use_cookies=cookies_flag,
                     platform=platform,
                     use_proxy=use_proxy,
                     cookies_str=cookies_str
@@ -722,7 +644,7 @@ def download_video(
                         "platform": platform,
                         "format": target_fmt,
                         "clients": clients,
-                        "cookies": cookies_flag
+                        "cookies": False
                     }, flush=True
                 )
                 return result
@@ -735,7 +657,7 @@ def download_video(
                         "platform": platform,
                         "format": target_fmt,
                         "clients": clients,
-                        "cookies": cookies_flag,
+                        "cookies": False,
                         "error": repr(e)
                     }, flush=True
                 )
@@ -756,7 +678,7 @@ def health():
     return jsonify({
         "status": "ok",
         "yt_dlp_version": YTDLP_VERSION,
-        "cookies_configured": bool(YOUTUBE_COOKIES),
+        "cookies_configured": False,
         "supported_platforms": ["youtube", "instagram", "tiktok", "news_il"]
     })
 
@@ -774,7 +696,6 @@ def list_formats():
     data = request.get_json(silent=True) or {}
     url = data.get("url")
     player_clients = data.get("player_client")
-    use_cookies = data.get("use_cookies", True)
     use_proxy = data.get("use_proxy", False)
     season = data.get("season")
     episode = data.get("episode")
@@ -800,9 +721,9 @@ def list_formats():
         "yt_dlp_version": YTDLP_VERSION,
         "platform": platform,
         "player_client": player_clients,
-        "use_cookies": bool(use_cookies),
+        "use_cookies": False,
         "use_proxy": bool(use_proxy),
-        "cookies_configured": bool(YOUTUBE_COOKIES)
+        "cookies_configured": False
     }
 
     print("FORMAT REQUEST:", diagnostic, flush=True)
@@ -813,7 +734,6 @@ def list_formats():
                 tmp_dir=tmp_dir,
                 fmt="video",
                 player_clients=player_clients,
-                use_cookies=use_cookies,
                 platform=platform,
                 diagnostic=True,
                 use_proxy=use_proxy,
@@ -850,8 +770,8 @@ def list_formats():
 
             real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
             video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none"]
-            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
-            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec") and f.get("acodec") != "none"]
+            audio_formats = [f for f in real_formats if f.get("acodec"] and f.get("acodec") != "none"]
+            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec"] and f.get("acodec") != "none"]
 
             return jsonify({
                 "success": True,
@@ -903,7 +823,6 @@ def download():
 
     fmt = data.get("format", "audio")
     player_clients = data.get("player_client")
-    use_cookies = data.get("use_cookies", True)
     use_proxy = data.get("use_proxy", False)
 
     if not url:
@@ -933,8 +852,7 @@ def download():
             "season": season,
             "episode": episode,
             "player_client": player_clients,
-            "use_cookies": bool(use_cookies),
-            "cookies_configured": bool(YOUTUBE_COOKIES),
+            "use_cookies": False,
             "use_proxy": use_proxy,
             "yt_dlp_version": YTDLP_VERSION
         }, flush=True
@@ -947,7 +865,6 @@ def download():
                 fmt=fmt,
                 tmp_dir=tmp_dir,
                 player_clients=player_clients,
-                use_cookies=use_cookies,
                 use_proxy=use_proxy,
                 cookies_str=cookies_str
             )
