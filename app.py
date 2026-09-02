@@ -125,6 +125,11 @@ def extract_hidden_m3u8(url, season=None, episode=None):
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                try:
+                    page.evaluate("() => { document.querySelectorAll('.fc-consent-root, .fc-dialog-overlay').forEach(el => el.remove()); }")
+                except:
+                    pass
+
                 page.mouse.wheel(0, 500)
                 page.wait_for_timeout(4000)
 
@@ -301,12 +306,16 @@ def write_cookies_file(tmp_dir):
         "cookies.txt"
     )
 
+    cleaned_cookies = YOUTUBE_COOKIES.strip()
+    if not cleaned_cookies.startswith("# Netscape HTTP Cookie File"):
+        cleaned_cookies = "# Netscape HTTP Cookie File\n" + cleaned_cookies
+
     with open(
         cookies_path,
         "w",
         encoding="utf-8"
     ) as f:
-        f.write(YOUTUBE_COOKIES)
+        f.write(cleaned_cookies)
 
     try:
         size = os.path.getsize(
@@ -399,11 +408,7 @@ def build_ytdlp_options(
         "%(title)s.%(ext)s"
     )
 
-    extractor_args = {
-        "youtubepot-bgutilhttp": {
-            "base_url": "http://127.0.0.1:4416"
-        }
-    }
+    extractor_args = {}
 
     if platform == "youtube" and player_clients:
         extractor_args["youtube"] = {
@@ -752,7 +757,6 @@ def health():
         "status": "ok",
         "yt_dlp_version": YTDLP_VERSION,
         "cookies_configured": bool(YOUTUBE_COOKIES),
-        "pot_provider": "http://127.0.0.1:4416",
         "supported_platforms": ["youtube", "instagram", "tiktok", "news_il"]
     })
 
@@ -798,8 +802,7 @@ def list_formats():
         "player_client": player_clients,
         "use_cookies": bool(use_cookies),
         "use_proxy": bool(use_proxy),
-        "cookies_configured": bool(YOUTUBE_COOKIES),
-        "pot_provider": "http://127.0.0.1:4416"
+        "cookies_configured": bool(YOUTUBE_COOKIES)
     }
 
     print("FORMAT REQUEST:", diagnostic, flush=True)
@@ -846,9 +849,9 @@ def list_formats():
                 })
 
             real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
-            video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none"]
-            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
-            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec") and f.get("acodec") != "none"]
+            video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec"] != "none"]
+            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec"] != "none"]
+            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec"] != "none" and f.get("acodec") and f.get("acodec"] != "none"]
 
             return jsonify({
                 "success": True,
@@ -893,7 +896,6 @@ def download():
     data = request.get_json(silent=True) or {}
     raw_input = data.get("url", "").strip()
     
-    # פיצול חכם של הקלט כך שיתמוך בכתובת, עונה ופרק בשדה אחד (לדוגמה: URL 1 12)
     parts = raw_input.split()
     url = parts[0] if parts else ""
     season = parts[1] if len(parts) > 1 else data.get("season")
