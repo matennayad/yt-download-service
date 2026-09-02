@@ -29,16 +29,10 @@ RUN pip3 install --no-cache-dir --break-system-packages playwright
 RUN playwright install --with-deps chromium
 
 # ============================================================
-# BGUTIL PO TOKEN PROVIDER
+# BGUTIL PO TOKEN PROVIDER (via NPM)
 # ============================================================
-RUN curl -L https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v1.3.1.tar.gz -o /tmp/pot.tar.gz \
-    && mkdir -p /opt/bgutil-ytdlp-pot-provider \
-    && tar -xzf /tmp/pot.tar.gz -C /opt/bgutil-ytdlp-pot-provider --strip-components=1 \
-    && rm /tmp/pot.tar.gz
-
-WORKDIR /opt/bgutil-ytdlp-pot-provider/server
-RUN npm ci
-RUN npx tsc
+WORKDIR /opt/bgutil-ytdlp-pot-provider
+RUN npm init -y && npm install @bgutil/ytdlp-pot-provider
 
 # ============================================================
 # COPY FLASK APP
@@ -55,4 +49,4 @@ EXPOSE 8080
 # ============================================================
 # START
 # ============================================================
-CMD ["sh", "-c", "PORT=4416 node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & exec python3 app.py"]
+CMD ["sh", "-c", "PORT=4416 node /opt/bgutil-ytdlp-pot-provider/node_modules/@bgutil/ytdlp-pot-provider/server/build/main.js & exec python3 app.py"]
