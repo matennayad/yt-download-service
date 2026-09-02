@@ -29,12 +29,9 @@ RUN pip3 install --no-cache-dir --break-system-packages playwright
 RUN playwright install --with-deps chromium
 
 # ============================================================
-# BGUTIL PO TOKEN PROVIDER
+# BGUTIL PO TOKEN PROVIDER (via Git Clone Main)
 # ============================================================
-RUN curl -sL -A "Mozilla/5.0" https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v1.3.1.tar.gz -o /tmp/pot.tar.gz \
-    && mkdir -p /opt/bgutil-ytdlp-pot-provider \
-    && tar -xzf /tmp/pot.tar.gz -C /opt/bgutil-ytdlp-pot-provider --strip-components=1 \
-    && rm /tmp/pot.tar.gz
+RUN git clone https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider
 
 WORKDIR /opt/bgutil-ytdlp-pot-provider/server
 RUN npm ci
