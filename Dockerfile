@@ -31,7 +31,7 @@ RUN playwright install --with-deps chromium
 # ============================================================
 # BGUTIL PO TOKEN PROVIDER
 # ============================================================
-RUN curl -L https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v1.3.1.tar.gz -o /tmp/pot.tar.gz \
+RUN curl -sL -A "Mozilla/5.0" https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v1.3.1.tar.gz -o /tmp/pot.tar.gz \
     && mkdir -p /opt/bgutil-ytdlp-pot-provider \
     && tar -xzf /tmp/pot.tar.gz -C /opt/bgutil-ytdlp-pot-provider --strip-components=1 \
     && rm /tmp/pot.tar.gz
