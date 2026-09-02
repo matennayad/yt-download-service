@@ -125,11 +125,6 @@ def extract_hidden_m3u8(url, season=None, episode=None):
 
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                try:
-                    page.evaluate("() => { document.querySelectorAll('.fc-consent-root, .fc-dialog-overlay').forEach(el => el.remove()); }")
-                except:
-                    pass
-
                 page.mouse.wheel(0, 500)
                 page.wait_for_timeout(4000)
 
