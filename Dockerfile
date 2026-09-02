@@ -31,11 +31,11 @@ RUN playwright install --with-deps chromium
 # ============================================================
 # BGUTIL PO TOKEN PROVIDER
 # ============================================================
-RUN git clone \
-    --single-branch \
-    --branch 1.3.1 \
-    https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
-    /opt/bgutil-ytdlp-pot-provider
+RUN curl -L https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v1.3.1.tar.gz -o /tmp/pot.tar.gz \
+    && mkdir -p /opt/bgutil-ytdlp-pot-provider \
+    && tar -xzf /tmp/pot.tar.gz -C /opt/bgutil-ytdlp-pot-provider --strip-components=1 \
+    && rm /tmp/pot.tar.gz
+
 WORKDIR /opt/bgutil-ytdlp-pot-provider/server
 RUN npm ci
 RUN npx tsc
