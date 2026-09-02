@@ -849,9 +849,9 @@ def list_formats():
                 })
 
             real_formats = [f for f in simplified if not str(f["format_id"]).startswith("sb")]
-            video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec"] != "none"]
-            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec"] != "none"]
-            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec"] != "none" and f.get("acodec") and f.get("acodec"] != "none"]
+            video_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none"]
+            audio_formats = [f for f in real_formats if f.get("acodec") and f.get("acodec") != "none"]
+            combined_formats = [f for f in real_formats if f.get("vcodec") and f.get("vcodec") != "none" and f.get("acodec") and f.get("acodec") != "none"]
 
             return jsonify({
                 "success": True,
