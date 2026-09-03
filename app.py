@@ -1765,3 +1765,51 @@ if __name__ == "__main__":
             )
         )
     )
+# ============================================================
+# TAMPERMONKEY / EXTERNAL API INTEGRATION
+# ============================================================
+
+@app.route("/tampermonkey-download", methods=["POST"])
+def tampermonkey_download():
+    provided_key = request.headers.get("X-API-KEY", "")
+    if not API_KEY or provided_key != API_KEY:
+        return jsonify({"success": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url")
+    fmt = data.get("format", "audio")
+    email = data.get("email", "").strip().lower()
+
+    if not url or not email:
+        return jsonify({"success": False, "error": "missing 'url' or 'email'"}), 400
+
+    if not is_valid_video_url(url):
+        return jsonify({"success": False, "error": "קישור לא נתמך"}), 400
+
+    cookies_str = ""
+    il_news_domains = ["mako.co.il", "n12.co.il", "13tv.co.il", "kan.org.il", "now14.co.il", "c14.co.il", "ynet.co.il"]
+    if ".m3u8" not in url.lower() and any(domain in url.lower() for domain in il_news_domains):
+        try:
+            url, cookies_str = extract_hidden_m3u8(url)
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            local_path, title = download_video(
+                url=url,
+                fmt=fmt,
+                tmp_dir=tmp_dir,
+                cookies_str=cookies_str
+            )
+            drive_link, file_id = upload_to_drive(local_path, os.path.basename(local_path))
+
+            return jsonify({
+                "success": True,
+                "title": title,
+                "driveLink": drive_link,
+                "fileId": file_id
+            })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": repr(e)}), 500
